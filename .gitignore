@@ -1,0 +1,35 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Next
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local working aids — NOT committed (planning artifacts + vendored docs)
+# design specs + implementation plans (kept local)
+docs/superpowers/
+# vendored third-party llms.txt
+docs/reference/*.txt
+
+# Data / caches
+*.log
+/tmp/
