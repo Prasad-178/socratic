@@ -111,42 +111,46 @@ export function Summary() {
   const studyTips =
     state.summary ?? state.study_tips ?? lastAssistant?.content ?? null;
 
+  const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+
   return (
-    <Card className="my-4 w-full">
+    <Card className="w-full">
       <CardHeader>
-        <CardTitle>Lesson summary</CardTitle>
+        <CardTitle className="font-[family-name:var(--font-display)] text-2xl font-medium">
+          Lesson complete 🎉
+        </CardTitle>
         <CardDescription>
           {total > 0
-            ? `You answered ${correct} of ${total} correctly.`
-            : "Lesson complete."}
+            ? `Nice work — you got ${correct} of ${total} right.`
+            : "You've reached the end of this lesson."}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex flex-col gap-5">
         {total > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="default">
-              Score: {correct}/{total}
-            </Badge>
-            <Badge variant="secondary">
-              {Math.round((correct / total) * 100)}%
-            </Badge>
+          <div className="flex items-baseline gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)] px-5 py-4">
+            <span className="font-[family-name:var(--font-display)] text-4xl font-semibold tabular-nums">
+              {pct}%
+            </span>
+            <span className="text-sm text-[var(--muted-foreground)]">
+              {correct} of {total} correct
+            </span>
           </div>
         )}
 
         {perObjective.size > 0 && (
           <>
             <Separator />
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2.5">
               <p className="text-sm font-medium text-[var(--foreground)]">
-                By objective
+                How you did, by topic
               </p>
-              <ul className="flex flex-col gap-1.5">
+              <ul className="flex flex-col gap-2">
                 {[...perObjective.entries()].map(([objectiveId, agg]) => (
                   <li
                     key={objectiveId}
                     className="flex items-center justify-between gap-2 text-sm"
                   >
-                    <span className="truncate text-[var(--muted-foreground)]">
+                    <span className="truncate text-[var(--foreground)]">
                       {objectiveTitle(objectiveId)}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
@@ -169,7 +173,7 @@ export function Summary() {
             <Separator />
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium text-[var(--foreground)]">
-                Study tips
+                What to study next
               </p>
               <p className="whitespace-pre-wrap text-sm text-[var(--muted-foreground)]">
                 {studyTips}

@@ -81,6 +81,7 @@ export function PlanApprovalCard({
     (plan ?? []).map((o) => ({ ...o })),
   );
   const [feedback, setFeedback] = useState("");
+  const [showFeedback, setShowFeedback] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   const updateTitle = (id: string, title: string) => {
@@ -106,31 +107,31 @@ export function PlanApprovalCard({
   return (
     <Card className="w-full">
       <CardHeader>
-        <Badge variant="secondary" className="w-fit">
-          Step 1 · Lesson plan
-        </Badge>
-        <CardTitle className="text-xl">Review your lesson plan</CardTitle>
+        <CardTitle className="font-[family-name:var(--font-display)] text-2xl font-medium">
+          Your lesson plan
+        </CardTitle>
         <CardDescription>
-          Edit or trim the objectives below, then approve to start the quiz — or
-          send feedback to regenerate.
+          Here&apos;s what we&apos;ll cover. Rename or remove anything, then
+          start the quiz.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-5">
         {objectives.length === 0 ? (
           <p className="rounded-[var(--radius)] border border-dashed border-[var(--border)] p-4 text-sm text-[var(--muted-foreground)]">
-            No objectives left. Add feedback and regenerate, or approve an empty
-            plan.
+            No objectives left. Add a note below and regenerate, or approve an
+            empty plan.
           </p>
         ) : (
           <ol className="flex flex-col gap-3">
             {objectives.map((o, i) => (
               <li
                 key={o.id}
-                className="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4"
+                style={{ "--stagger-index": i } as React.CSSProperties}
+                className="flex animate-card-enter flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4"
               >
                 <div className="flex items-start gap-3">
-                  <span className="mt-2 flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--secondary)] text-xs font-semibold text-[var(--secondary-foreground)]">
+                  <span className="mt-2 flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-[var(--primary-foreground)]">
                     {i + 1}
                   </span>
                   <Input
@@ -168,45 +169,55 @@ export function PlanApprovalCard({
                 )}
 
                 {o.key_points && o.key_points.length > 0 && (
-                  <ul className="flex flex-col gap-1 pl-9">
-                    {o.key_points.map((kp, kpi) => (
-                      <li
-                        key={kpi}
-                        className="flex gap-2 text-sm text-[var(--muted-foreground)]"
-                      >
-                        <span className="select-none text-[var(--muted-foreground)]">
-                          •
-                        </span>
-                        <span>{kp}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="flex flex-col gap-1.5 pl-9">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                      What you&apos;ll learn
+                    </p>
+                    <ul className="flex flex-col gap-1">
+                      {o.key_points.map((kp, kpi) => (
+                        <li
+                          key={kpi}
+                          className="flex gap-2 text-sm text-[var(--muted-foreground)]"
+                        >
+                          <span
+                            aria-hidden
+                            className="select-none text-[var(--muted-foreground)]"
+                          >
+                            •
+                          </span>
+                          <span>{kp}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </li>
             ))}
           </ol>
         )}
 
-        <Separator />
-
-        <div className="flex flex-col gap-2">
-          <label
-            htmlFor="plan-feedback"
-            className="text-sm font-medium text-[var(--foreground)]"
-          >
-            Feedback{" "}
-            <span className="font-normal text-[var(--muted-foreground)]">
-              (only used when regenerating)
-            </span>
-          </label>
-          <Textarea
-            id="plan-feedback"
-            placeholder="e.g. focus more on chapter 3, make objectives harder…"
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-            disabled={submitted}
-          />
-        </div>
+        {/* Regenerate feedback is tucked away — only shown on request. */}
+        {showFeedback && (
+          <div className="flex animate-fade-in flex-col gap-2">
+            <Separator />
+            <label
+              htmlFor="plan-feedback"
+              className="text-sm font-medium text-[var(--foreground)]"
+            >
+              What should change?{" "}
+              <span className="font-normal text-[var(--muted-foreground)]">
+                (used when you regenerate)
+              </span>
+            </label>
+            <Textarea
+              id="plan-feedback"
+              placeholder="e.g. focus more on chapter 3, make it harder…"
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              disabled={submitted}
+            />
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
@@ -218,17 +229,29 @@ export function PlanApprovalCard({
         >
           Approve &amp; start quiz
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={regenerate}
-          disabled={submitted}
-        >
-          Regenerate plan
-        </Button>
+        {showFeedback ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={regenerate}
+            disabled={submitted}
+          >
+            Regenerate
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setShowFeedback(true)}
+            disabled={submitted}
+            className="text-[var(--muted-foreground)]"
+          >
+            Regenerate instead
+          </Button>
+        )}
         {submitted && (
           <span className="text-sm text-[var(--muted-foreground)] sm:ml-2">
-            Sent to the tutor…
+            Working on it…
           </span>
         )}
       </CardFooter>
@@ -239,8 +262,8 @@ export function PlanApprovalCard({
 /**
  * Registers the plan-approval interrupt handler with `renderInChat: false`, so
  * the hook RETURNS the card element (or `null` when idle) instead of publishing
- * it into `<CopilotChat>`. The caller places the returned element in the main
- * lesson panel.
+ * it into a chat surface. The caller places the returned element in the lesson
+ * column.
  *
  * The AG-UI bridge delivers the interrupt payload as a JSON STRING in
  * `event.value`; `readPlanPayload` (via `parseInterruptValue`) parses it before

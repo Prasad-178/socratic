@@ -160,26 +160,31 @@ export function Uploader() {
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Upload a study document</CardTitle>
+        <CardTitle className="font-[family-name:var(--font-display)] text-xl font-medium">
+          Start with a PDF
+        </CardTitle>
         <CardDescription>
-          Drop a PDF to start an interactive Socratic lesson.
+          Drop a study document and we&apos;ll build a guided lesson around it.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div
           onDrop={onDrop}
           onDragOver={(e) => e.preventDefault()}
-          className="flex flex-col items-center justify-center gap-3 rounded-[var(--radius)] border border-dashed border-[var(--border)] bg-[var(--background)] px-6 py-10 text-center"
+          className="flex flex-col items-center justify-center gap-4 rounded-[var(--radius)] border border-dashed border-[var(--border)] bg-[var(--background)] px-6 py-14 text-center transition-colors duration-200 hover:border-[var(--ring)]"
         >
           {fileInput}
 
           {isUploading ? (
             <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
               <Spinner size="sm" />
-              <span>Ingesting PDF…</span>
+              <span>Reading your PDF…</span>
             </div>
           ) : (
             <>
+              <span aria-hidden className="text-2xl">
+                📄
+              </span>
               <p className="text-sm text-[var(--muted-foreground)]">
                 Drag &amp; drop a PDF here, or
               </p>

@@ -33,6 +33,10 @@
 
   --radius: 0.75rem;
 
+  /* Motion — Emil Kowalski easing. Used by the lesson flow for entrances,
+     button presses, and answer feedback. Durations live in the utilities. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
   /* Override CopilotKit font */
   --cpk-default-font-family: var(--font-body);
 
@@ -92,19 +96,72 @@ html {
   height: 100%;
 }
 
-/*
- * Showcase highlight for suggestion pills.
- * Applied via className in use-example-suggestions.tsx when showcase.json
- * is set to a non-default mode (e.g. "a2ui", "opengenui"). Uses CopilotKit
- * brand colors with a subtle tinted background.
- * Add new showcase variants here following the same pattern.
- */
-[data-copilotkit] button[data-slot="suggestion-pill"].a2ui-highlight {
-  border-color: var(--cpk-lilac-400);
-  background: color-mix(in srgb, var(--cpk-lilac-400) 15%, var(--background));
+/* ──────────────────────────────────────────────────────────────────────────
+ * Motion — applied deliberately (Emil Kowalski principles).
+ *
+ * Rules of the house:
+ *   • Only animate transform / opacity / color (never `all`).
+ *   • Entrances fade + translateY(8px) → 0 (never from scale(0)).
+ *   • Durations 150–250ms, eased with --ease-out.
+ *   • Movement is gated behind prefers-reduced-motion (opacity/color stay).
+ *   • Hover-scale is gated behind hover+fine-pointer.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+@keyframes step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-[data-copilotkit] button[data-slot="suggestion-pill"].opengenui-highlight {
-  border-color: var(--cpk-mint-400);
-  background: color-mix(in srgb, var(--cpk-mint-400) 15%, var(--background));
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The active lesson step fades up into place. */
+.animate-step-enter {
+  animation: step-enter 240ms var(--ease-out) both;
+}
+
+/* Plain opacity fade for result blocks / hints. */
+.animate-fade-in {
+  animation: fade-in 200ms var(--ease-out) both;
+}
+
+/* Staggered card entrance — each objective card delays by ~50ms via an inline
+   --stagger-index custom property set in JSX. */
+.animate-card-enter {
+  animation: step-enter 260ms var(--ease-out) both;
+  animation-delay: calc(var(--stagger-index, 0) * 50ms);
+}
+
+/* Responsive press feel for primary actions (and anything opting in). */
+.press {
+  transition: transform 160ms var(--ease-out);
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-step-enter,
+  .animate-fade-in,
+  .animate-card-enter {
+    animation: fade-in 1ms linear both;
+  }
+  .press {
+    transition: none;
+  }
+  .press:active {
+    transform: none;
+  }
 }

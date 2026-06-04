@@ -1,22 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { useInterrupt } from "@copilotkit/react-core/v2";
+import { useAgent, useInterrupt } from "@copilotkit/react-core/v2";
 
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Spinner } from "@/components/ui/spinner";
+import { Tutor } from "@/components/Tutor";
 import { cn, parseInterruptValue } from "@/lib/utils";
 
 export interface Mcq {
@@ -30,6 +28,14 @@ export interface Mcq {
   source_pages?: number[];
 }
 
+/** Subset of the agent's shared state we read to compute quiz progress. */
+interface SocraticState {
+  objectives?: { id: string; title: string; difficulty?: string }[];
+  current_objective_idx?: number;
+  current_mcqs?: unknown[];
+  current_mcq_idx?: number;
+}
+
 /**
  * Reads a parsed interrupt payload (see `parseInterruptValue`) and returns the
  * `mcq` object, or `null` if this isn't an MCQ event.
@@ -40,6 +46,67 @@ function readMcqPayload(raw: unknown): Mcq | null {
   const mcq = payload.mcq;
   if (mcq && typeof mcq === "object") return mcq as Mcq;
   return null;
+}
+
+/**
+ * Quiz progress header derived from the agent's shared state.
+ *
+ * Shows "Objective N of M · Question N of M" plus the objective title. If any
+ * field is briefly unavailable (state still catching up), it degrades to just
+ * "Question".
+ */
+function QuizProgress({ mcq }: { mcq: Mcq }) {
+  const { agent } = useAgent();
+  const state = (agent.state ?? {}) as SocraticState;
+
+  const objectives = state.objectives ?? [];
+  const objIdx = state.current_objective_idx;
+  const mcqs = state.current_mcqs ?? [];
+  const mcqIdx = state.current_mcq_idx;
+
+  const objTotal = objectives.length;
+  const objN = typeof objIdx === "number" ? objIdx + 1 : undefined;
+  const qTotal = mcqs.length;
+  const qN = typeof mcqIdx === "number" ? mcqIdx + 1 : undefined;
+
+  // Objective: prefer matching by id, fall back to index.
+  const objective =
+    objectives.find((o) => o.id === mcq.objective_id) ??
+    (typeof objIdx === "number" ? objectives[objIdx] : undefined);
+  const title = objective?.title;
+  const difficulty = objective?.difficulty;
+
+  const haveObj = objN !== undefined && objTotal > 0;
+  const haveQ = qN !== undefined && qTotal > 0;
+
+  let label: string;
+  if (haveObj && haveQ) {
+    label = `Objective ${objN} of ${objTotal} · Question ${qN} of ${qTotal}`;
+  } else if (haveQ) {
+    label = `Question ${qN} of ${qTotal}`;
+  } else {
+    label = "Question";
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+        {label}
+      </p>
+      <div className="flex items-center gap-2">
+        {title && (
+          <p className="text-sm font-medium text-[var(--foreground)]">
+            {title}
+          </p>
+        )}
+        {difficulty && (
+          <Badge variant="secondary" className="shrink-0 capitalize">
+            {difficulty}
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -72,12 +139,8 @@ export function McqCard({
   const [attempts, setAttempts] = useState(0);
   // Set once the learner answers correctly or skips — locks the widget.
   const [resolved, setResolved] = useState(false);
-
-  // Tutor (Socratic hint) affordance state.
-  const [tutorQuestion, setTutorQuestion] = useState("");
-  const [tutorReply, setTutorReply] = useState<string | null>(null);
-  const [tutorLoading, setTutorLoading] = useState(false);
-  const [tutorError, setTutorError] = useState<string | null>(null);
+  // The guardrailed tutor panel is tucked away until asked for.
+  const [showTutor, setShowTutor] = useState(false);
 
   const selectedIndex = selected === "" ? -1 : Number(selected);
   const isCorrect = submitted && selectedIndex === mcq.correct_index;
@@ -108,50 +171,20 @@ export function McqCard({
     resolve({ chosen_index: selectedIndex, correct: false, attempts });
   };
 
-  const askTutor = async () => {
-    const message = tutorQuestion.trim();
-    if (!message || tutorLoading) return;
-    setTutorLoading(true);
-    setTutorError(null);
-    setTutorReply(null);
-    try {
-      const res = await fetch("/api/tutor", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          question: mcq.question,
-          options: mcq.options,
-          correct_index: mcq.correct_index,
-          user_message: message,
-        }),
-      });
-      if (!res.ok) throw new Error(`Tutor request failed (${res.status})`);
-      const data: { reply?: string } = await res.json();
-      setTutorReply(data.reply ?? "(no reply)");
-    } catch (err) {
-      setTutorError(
-        err instanceof Error ? err.message : "Could not reach the tutor",
-      );
-    } finally {
-      setTutorLoading(false);
-    }
-  };
-
   return (
     <Card className="w-full">
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <Badge variant="secondary" className="w-fit">
-            Step 2 · Quiz
-          </Badge>
+      <CardHeader className="gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <QuizProgress mcq={mcq} />
           {attempts > 0 && !resolved && (
-            <Badge variant="outline">
-              Attempt{attempts === 1 ? "" : "s"}: {attempts}
+            <Badge variant="outline" className="shrink-0">
+              Attempt {attempts}
             </Badge>
           )}
         </div>
-        <CardTitle className="text-lg leading-snug">{mcq.question}</CardTitle>
-        <CardDescription>Pick the best answer.</CardDescription>
+        <CardTitle className="font-[family-name:var(--font-display)] text-xl font-medium leading-snug">
+          {mcq.question}
+        </CardTitle>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-5">
@@ -171,7 +204,7 @@ export function McqCard({
                 key={optionId}
                 htmlFor={optionId}
                 className={cn(
-                  "flex cursor-pointer items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] p-3.5 text-sm transition-colors",
+                  "flex cursor-pointer items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] p-4 text-sm transition-[color,background-color,border-color] duration-200",
                   !submitted &&
                     !resolved &&
                     "hover:border-[var(--ring)] hover:bg-[var(--secondary)]",
@@ -217,8 +250,8 @@ export function McqCard({
         )}
 
         {isCorrect && !resolved && (
-          <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-green-500 bg-green-50 p-4 text-sm text-green-900 dark:bg-green-950 dark:text-green-100">
-            <p className="font-semibold">Correct!</p>
+          <div className="flex animate-fade-in flex-col gap-3 rounded-[var(--radius)] border border-green-500 bg-green-50 p-4 text-sm text-green-900 dark:bg-green-950 dark:text-green-100">
+            <p className="font-semibold">Correct! Here&apos;s why:</p>
             {mcq.explanation && (
               <p className="text-green-800 dark:text-green-200">
                 {mcq.explanation}
@@ -231,12 +264,10 @@ export function McqCard({
         )}
 
         {isWrong && !resolved && (
-          <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-red-500 bg-red-50 p-4 text-sm text-red-900 dark:bg-red-950 dark:text-red-100">
-            <p className="font-semibold">Not quite.</p>
+          <div className="flex animate-fade-in flex-col gap-3 rounded-[var(--radius)] border border-red-500 bg-red-50 p-4 text-sm text-red-900 dark:bg-red-950 dark:text-red-100">
+            <p className="font-semibold">Not quite — here&apos;s a hint:</p>
             {mcq.hint && (
-              <p className="text-red-800 dark:text-red-200">
-                <span className="font-medium">Hint:</span> {mcq.hint}
-              </p>
+              <p className="text-red-800 dark:text-red-200">{mcq.hint}</p>
             )}
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={onTryAgain} className="self-start">
@@ -256,55 +287,46 @@ export function McqCard({
 
         {resolved && (
           <p className="text-sm text-[var(--muted-foreground)]">
-            Answer submitted — back to the tutor…
+            Answer saved — moving on…
           </p>
         )}
 
-        {/* ── Socratic tutor affordance (does NOT resolve the interrupt) ─── */}
+        {/* ── Guardrailed tutor (tucked away; never resolves the interrupt) ─ */}
         {!resolved && (
           <>
             <Separator />
-            <div className="flex flex-col gap-2">
-              <label
-                htmlFor={`${mcq.id}-tutor`}
-                className="text-sm font-medium text-[var(--foreground)]"
-              >
-                Stuck? Ask the tutor for a hint
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  id={`${mcq.id}-tutor`}
-                  placeholder="e.g. how should I think about this?"
-                  value={tutorQuestion}
-                  onChange={(e) => setTutorQuestion(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void askTutor();
-                    }
-                  }}
-                  disabled={tutorLoading}
+            {showTutor ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-[var(--foreground)]">
+                    Ask your tutor
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-[var(--muted-foreground)]"
+                    onClick={() => setShowTutor(false)}
+                  >
+                    Hide
+                  </Button>
+                </div>
+                <Tutor
+                  question={mcq.question}
+                  options={mcq.options}
+                  correct_index={mcq.correct_index}
                 />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => void askTutor()}
-                  disabled={tutorLoading || tutorQuestion.trim() === ""}
-                >
-                  {tutorLoading ? <Spinner size="sm" /> : "Ask"}
-                </Button>
               </div>
-              {tutorReply && (
-                <p className="rounded-[var(--radius)] bg-[var(--secondary)] p-3 text-sm text-[var(--secondary-foreground)]">
-                  {tutorReply}
-                </p>
-              )}
-              {tutorError && (
-                <p className="text-sm text-[var(--destructive)]">
-                  {tutorError}
-                </p>
-              )}
-            </div>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                className="self-start text-[var(--muted-foreground)]"
+                onClick={() => setShowTutor(true)}
+              >
+                Stuck? Ask your tutor
+              </Button>
+            )}
           </>
         )}
       </CardContent>
@@ -315,8 +337,7 @@ export function McqCard({
 /**
  * Registers the MCQ interrupt handler with `renderInChat: false`, so the hook
  * RETURNS the card element (or `null` when idle) instead of publishing it into
- * `<CopilotChat>`. The caller places the returned element in the main lesson
- * panel.
+ * a chat surface. The caller places the returned element in the lesson column.
  *
  * The AG-UI bridge delivers the interrupt payload as a JSON STRING in
  * `event.value`; `readMcqPayload` (via `parseInterruptValue`) parses it before

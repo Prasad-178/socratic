@@ -8,12 +8,14 @@ const ThemeContext = createContext<{
   theme: Theme;
   setTheme: (t: Theme) => void;
 }>({
-  theme: "system",
+  theme: "dark",
   setTheme: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("system");
+  // The guided-lesson surface is designed dark-first (calm, editorial). Default
+  // to dark rather than following the OS so the demo reads as intended.
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
     const root = document.documentElement;

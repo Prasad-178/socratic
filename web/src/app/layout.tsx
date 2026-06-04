@@ -1,16 +1,26 @@
 "use client";
 
 import "./globals.css";
-import "@copilotkit/react-core/v2/styles.css";
 
 import { CopilotKit } from "@copilotkit/react-core/v2";
+import { Fraunces } from "next/font/google";
 import { ThemeProvider } from "@/hooks/use-theme";
+
+// One refined editorial display face for headings only — body stays on the
+// existing Plus Jakarta Sans stack (see globals.css). Exposed as a CSS variable
+// so it's opt-in per element via `font-[family-name:var(--font-display)]`.
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600"],
+  variable: "--font-display",
+});
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={fraunces.variable}>
       <head>
         <title>Socratic</title>
         <link
@@ -21,11 +31,9 @@ export default function RootLayout({
       </head>
       <body className={`antialiased`}>
         <ThemeProvider>
-          <CopilotKit
-            runtimeUrl="/api/copilotkit"
-            openGenerativeUI={{}}
-            useSingleEndpoint={false}
-          >
+          {/* Minimal CopilotKit provider: we drive the lesson via useAgent +
+              useInterrupt only (no CopilotChat, no generative UI). */}
+          <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
             {children}
           </CopilotKit>
         </ThemeProvider>
