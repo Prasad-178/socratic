@@ -5,7 +5,7 @@ from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_community.document_compressors import FlashrankRerank
 from langchain_core.documents import Document
 
-from src.ingest import _store
+from src.ingest import _get_store
 
 
 def retrieve(
@@ -27,7 +27,7 @@ def retrieve(
         Up to *top_n* chunks, ordered by relevance.
     """
     # PGVector 0.0.17 accepts a flat dict for equality filters on JSONB metadata
-    base = _store().as_retriever(
+    base = _get_store().as_retriever(
         search_kwargs={"k": k, "filter": {"document_id": document_id}},
     )
     with warnings.catch_warnings():

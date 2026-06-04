@@ -18,6 +18,7 @@ else:
     load_dotenv()
 
 from fastapi import FastAPI, File, UploadFile
+from fastapi.concurrency import run_in_threadpool
 import uvicorn
 from src.agent import graph
 from src.ingest import ingest_document
@@ -44,7 +45,9 @@ async def upload(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, tmp)
         path = Path(tmp.name)
     try:
-        chunks = ingest_document(path, document_id)
+        # Single-user POC: run synchronous ingestion in a thread so the event
+        # loop is not blocked during Docling parsing and embedding calls.
+        chunks = await run_in_threadpool(ingest_document, path, document_id)
     finally:
         path.unlink(missing_ok=True)
     return {"document_id": document_id, "chunks": chunks, "filename": file.filename}

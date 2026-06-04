@@ -11,5 +11,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://socratic:socratic@localhost:5432/socratic"
     langsmith_tracing: bool = True
     langsmith_project: str = "socratic"
+    # Docling device: cpu | cuda | mps | auto  (cpu is the safe default — MPS
+    # does not support float64 which the layout model requires on macOS)
+    docling_device: str = "cpu"
+    docling_num_threads: int = 4
 
 settings = Settings()

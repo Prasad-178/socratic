@@ -1,4 +1,7 @@
 """PDF ingestion pipeline: parse → chunk → embed → store in pgvector."""
+from __future__ import annotations
+
+import functools
 from pathlib import Path
 
 import psycopg
@@ -17,75 +20,141 @@ from src.llm import get_embeddings
 
 COLLECTION = "socratic_docs"
 
+# ---------------------------------------------------------------------------
+# Memoized singletons  (FIX M1 + M6)
+# ---------------------------------------------------------------------------
+
+@functools.lru_cache(maxsize=1)
+def _get_embeddings_cached():
+    """Return a single shared embeddings instance (loaded once per process)."""
+    return get_embeddings()
+
+
+@functools.lru_cache(maxsize=1)
+def _configured_dim() -> int:
+    """Return the embedding dimension for the *currently configured* model.
+
+    Probes the embeddings object once and caches the result.  Used to guard
+    against mixed-dimension inserts when switching embedding models.
+    """
+    return len(_get_embeddings_cached().embed_query("dimension probe"))
+
+
+@functools.lru_cache(maxsize=1)
+def _get_converter() -> DocumentConverter:
+    """Return a single shared DocumentConverter (Docling models loaded once)."""
+    return _make_converter()
+
+
+@functools.lru_cache(maxsize=1)
+def _get_store() -> PGVector:
+    """Return a single shared PGVector store instance."""
+    return _store_new()
+
+
+# ---------------------------------------------------------------------------
+# Docling converter  (FIX M3)
+# ---------------------------------------------------------------------------
+
+_DEVICE_MAP: dict[str, AcceleratorDevice] = {
+    "cpu": AcceleratorDevice.CPU,
+    "cuda": AcceleratorDevice.CUDA,
+    "mps": AcceleratorDevice.MPS,
+    "auto": AcceleratorDevice.AUTO,
+}
+
 
 def _make_converter() -> DocumentConverter:
-    """Build a DocumentConverter that always runs on CPU.
+    """Build a DocumentConverter with device/threads from settings.
 
     Apple MPS (Metal) does not support float64, which the layout model
-    (RT-DETRv2) requires.  Explicitly selecting CPU prevents the
+    (RT-DETRv2) requires.  The default device is CPU to avoid the
     ``Cannot convert a MPS Tensor to float64`` runtime error on macOS.
+    Override via ``DOCLING_DEVICE=mps|cuda|auto`` in the environment once
+    the upstream model supports it.
     """
+    device = _DEVICE_MAP.get(settings.docling_device.lower(), AcceleratorDevice.CPU)
     opts = PdfPipelineOptions()
     opts.accelerator_options = AcceleratorOptions(
-        num_threads=4,
-        device=AcceleratorDevice.CPU,
+        num_threads=settings.docling_num_threads,
+        device=device,
     )
     return DocumentConverter(
         format_options={"pdf": PdfFormatOption(pipeline_options=opts)}
     )
 
 
+# ---------------------------------------------------------------------------
+# Page-provenance helper  (FIX M5 — pure, testable)
+# ---------------------------------------------------------------------------
+
+def _extract_page(dl_meta: dict) -> int | None:
+    """Return the 1-based page number from a Docling chunk's ``dl_meta`` dict.
+
+    Primary path: ``doc_items[0].prov[0].page_no`` (or ``page``).
+    Fallback: walk every doc_item / prov entry for any non-None page.
+    Returns ``None`` when no provenance data is present or parseable.
+    """
+    page_no: int | None = None
+    try:
+        prov = dl_meta["doc_items"][0]["prov"][0]
+        raw = prov.get("page_no") or prov.get("page")
+        if raw is not None:
+            page_no = int(raw)
+    except (KeyError, IndexError, TypeError, ValueError):
+        pass
+
+    if page_no is None:
+        for item in dl_meta.get("doc_items", []):
+            for p in item.get("prov", []):
+                raw = p.get("page_no") or p.get("page")
+                if raw is not None:
+                    try:
+                        page_no = int(raw)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            if page_no is not None:
+                break
+
+    return page_no
+
+
+# ---------------------------------------------------------------------------
+# PDF parsing
+# ---------------------------------------------------------------------------
+
 def parse_pdf(path: Path) -> list[Document]:
     """Load and chunk a PDF using Docling with HybridChunker.
 
     Extracts page-number provenance from the Docling metadata so each
     Document chunk carries ``metadata["page"]`` as an integer (1-based).
+    Reuses the cached DocumentConverter (FIX M1/M6).
     """
     loader = DoclingLoader(
         file_path=str(path),
-        converter=_make_converter(),
+        converter=_get_converter(),
         export_type=ExportType.DOC_CHUNKS,
         chunker=HybridChunker(),
     )
     docs = loader.load()
 
     for d in docs:
-        # Docling 2.x stores provenance in dl_meta.doc_items[0].prov[0].page_no
         meta = d.metadata.get("dl_meta", {})
-        page_no = None
-        try:
-            # Prefer the first provenance entry from the first doc_item
-            prov = meta["doc_items"][0]["prov"][0]
-            raw = prov.get("page_no") or prov.get("page")
-            if raw is not None:
-                page_no = int(raw)
-        except (KeyError, IndexError, TypeError, ValueError):
-            pass
-
-        if page_no is None:
-            # Fallback: walk all doc_items looking for any page_no
-            for item in meta.get("doc_items", []):
-                for p in item.get("prov", []):
-                    raw = p.get("page_no") or p.get("page")
-                    if raw is not None:
-                        try:
-                            page_no = int(raw)
-                            break
-                        except (TypeError, ValueError):
-                            pass
-                if page_no is not None:
-                    break
-
-        d.metadata["page"] = page_no
+        d.metadata["page"] = _extract_page(meta)
         d.metadata["headings"] = meta.get("headings", [])
 
     return docs
 
 
-def _store() -> PGVector:
-    """Return a PGVector store using the configured database and embeddings."""
+# ---------------------------------------------------------------------------
+# PGVector store factory (internal; public callers use _get_store())
+# ---------------------------------------------------------------------------
+
+def _store_new() -> PGVector:
+    """Construct a PGVector store using the cached embeddings singleton."""
     return PGVector(
-        embeddings=get_embeddings(),
+        embeddings=_get_embeddings_cached(),
         collection_name=COLLECTION,
         connection=settings.database_url,
         distance_strategy=DistanceStrategy.COSINE,
@@ -93,16 +162,27 @@ def _store() -> PGVector:
     )
 
 
+# Keep the old name used by retrieval.py as a thin shim that returns the
+# cached singleton so both callers share one store object.
+def _store() -> PGVector:
+    return _get_store()
+
+
+# ---------------------------------------------------------------------------
+# HNSW index management  (FIX I1 + M2)
+# ---------------------------------------------------------------------------
+
 def ensure_hnsw_index() -> None:
     """Create an HNSW index on the embedding column if it doesn't exist.
 
-    Must be called after ``add_documents`` so the table already exists.
-    pgvector HNSW requires a *dimensioned* vector column (vector(N)).  If the
-    column is untyped (PGVector creates it without dimensions on the first
-    insert) we infer the dimension from existing rows and ALTER the column
-    before indexing.  fastembed (384) and text-embedding-3-large (1536) are
-    both within pgvector's 2000-dim HNSW limit.
+    Uses the *configured* embedding dimension (from the probed embeddings
+    object) rather than inferring it from an arbitrary on-disk row — this
+    prevents silent dimension mismatches when switching embedding models.
+
+    Raises RuntimeError if existing rows were embedded with a different
+    dimension than the currently configured model.
     """
+    configured = _configured_dim()
     # psycopg 3 DSN uses plain postgresql:// driver prefix
     dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
     with psycopg.connect(dsn, autocommit=True) as conn:
@@ -113,23 +193,34 @@ def ensure_hnsw_index() -> None:
             "AND indexname = 'langchain_pg_embedding_hnsw_idx';"
         ).fetchone()
         if row:
-            return  # nothing to do
+            return  # index already exists; nothing to do
 
-        # Infer dimension from an existing embedding row
+        # Read the on-disk dimension using vector_dims()  (FIX M2)
         dim_row = conn.execute(
-            "SELECT array_length(embedding::real[], 1) "
+            "SELECT vector_dims(embedding) "
             "FROM langchain_pg_embedding LIMIT 1;"
         ).fetchone()
+
         if dim_row is None or dim_row[0] is None:
-            return  # no rows yet; index will be created on next call
+            # No rows yet — use configured dim; index will be created on next call
+            # after rows are inserted, OR proceed with ALTER now to lock in the dim.
+            pass
+        else:
+            disk_dim = dim_row[0]
+            if disk_dim != configured:
+                raise RuntimeError(
+                    f"Embedding dimension mismatch: rows on disk have dimension "
+                    f"{disk_dim} but the configured embedding model produces "
+                    f"{configured} dimensions. The embedding model changed. "
+                    f"Reset the vector store (docker compose down -v) or use a "
+                    f"separate database per embedding model."
+                )
 
-        dim = dim_row[0]
-
-        # Cast the column to vector(dim) so HNSW can operate on it
+        # ALTER the column to the configured dimension so HNSW can be created
         conn.execute(
             f"ALTER TABLE langchain_pg_embedding "
-            f"ALTER COLUMN embedding TYPE vector({dim}) "
-            f"USING embedding::vector({dim});"
+            f"ALTER COLUMN embedding TYPE vector({configured}) "
+            f"USING embedding::vector({configured});"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS langchain_pg_embedding_hnsw_idx "
@@ -138,14 +229,50 @@ def ensure_hnsw_index() -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Pre-insert dimension guard  (FIX I1 — fast pre-check)
+# ---------------------------------------------------------------------------
+
+def _check_dimension_before_insert() -> None:
+    """Raise RuntimeError if existing on-disk rows clash with the configured dim.
+
+    Called before inserting new documents so the error is surfaced immediately
+    rather than letting pgvector fail with a cryptic cast error.
+    """
+    configured = _configured_dim()
+    dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(dsn) as conn:
+        dim_row = conn.execute(
+            "SELECT vector_dims(embedding) "
+            "FROM langchain_pg_embedding LIMIT 1;"
+        ).fetchone()
+    if dim_row is not None and dim_row[0] is not None:
+        disk_dim = dim_row[0]
+        if disk_dim != configured:
+            raise RuntimeError(
+                f"Embedding dimension mismatch: rows on disk have dimension "
+                f"{disk_dim} but the configured embedding model produces "
+                f"{configured} dimensions. The embedding model changed. "
+                f"Reset the vector store (docker compose down -v) or use a "
+                f"separate database per embedding model."
+            )
+
+
+# ---------------------------------------------------------------------------
+# Public ingestion entry-point
+# ---------------------------------------------------------------------------
+
 def ingest_document(path: Path, document_id: str) -> int:
     """Parse a PDF, tag every chunk with ``document_id``, embed and store them.
 
     Returns the number of chunks ingested.
+    NOTE: this function is intentionally synchronous (single-user POC); callers
+    in async contexts must wrap it with ``run_in_threadpool``.
     """
+    _check_dimension_before_insert()
     docs = parse_pdf(path)
     for d in docs:
         d.metadata["document_id"] = document_id
-    _store().add_documents(docs)
+    _get_store().add_documents(docs)
     ensure_hnsw_index()
     return len(docs)
