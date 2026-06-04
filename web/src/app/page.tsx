@@ -7,6 +7,8 @@ import { usePlanApproval } from "@/components/PlanApproval";
 import { useMcq } from "@/components/McqWidget";
 import { Summary } from "@/components/Summary";
 import { Stepper, type Step } from "@/components/Stepper";
+import { LessonSettings } from "@/components/LessonSettings";
+import { LessonSettingsProvider } from "@/hooks/use-lesson-settings";
 import { Spinner } from "@/components/ui/spinner";
 
 /** Subset of the agent's shared state the active-step machine reads. */
@@ -64,32 +66,39 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-5 py-10 sm:py-14">
-        {/* ── Masthead ──────────────────────────────────────────────────── */}
-        <header className="flex flex-col gap-1.5">
-          <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
-            Socratic
-          </h1>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Turn a PDF into a guided, interactive lesson.
-          </p>
-        </header>
+    <LessonSettingsProvider>
+      <div className="min-h-full overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-5 py-10 sm:py-14">
+          {/* ── Masthead ────────────────────────────────────────────────── */}
+          <header className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-1.5">
+              <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
+                Socratic
+              </h1>
+              <p className="text-sm text-[var(--muted-foreground)]">
+                Turn a PDF into a guided, interactive lesson.
+              </p>
+            </div>
+            <div className="shrink-0">
+              <LessonSettings />
+            </div>
+          </header>
 
-        {/* ── Orientation stepper ───────────────────────────────────────── */}
-        <Stepper current={step} />
+          {/* ── Orientation stepper ─────────────────────────────────────── */}
+          <Stepper current={step} />
 
-        {/* ── Uploader (persistent: drop zone → slim file strip) ────────── */}
-        <Uploader />
+          {/* ── Uploader (persistent: drop zone → slim file strip) ──────── */}
+          <Uploader />
 
-        {/* ── Active step ───────────────────────────────────────────────── */}
-        {activeStep && (
-          <div key={step} className="animate-step-enter">
-            {activeStep}
-          </div>
-        )}
+          {/* ── Active step ─────────────────────────────────────────────── */}
+          {activeStep && (
+            <div key={step} className="animate-step-enter">
+              {activeStep}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </LessonSettingsProvider>
   );
 }
 
@@ -104,8 +113,8 @@ function PlanningStatus() {
           Planning your lesson…
         </p>
         <p className="max-w-sm text-sm text-[var(--muted-foreground)]">
-          Reading your document and drafting the learning objectives. This takes
-          a moment.
+          Reading your document and choosing the topics to cover. This takes a
+          moment.
         </p>
       </div>
     </div>

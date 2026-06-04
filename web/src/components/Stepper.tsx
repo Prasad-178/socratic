@@ -7,9 +7,9 @@ export type Step = "upload" | "plan" | "quiz" | "summary";
 
 const STEPS: { id: Step; label: string }[] = [
   { id: "upload", label: "Upload" },
-  { id: "plan", label: "Review plan" },
+  { id: "plan", label: "Plan" },
   { id: "quiz", label: "Quiz" },
-  { id: "summary", label: "Summary" },
+  { id: "summary", label: "Results" },
 ];
 
 /**

@@ -137,6 +137,15 @@ html {
   animation: fade-in 200ms var(--ease-out) both;
 }
 
+/* Modal overlay fades; the card fades + lifts (translateY 8px → 0), per the
+   house motion rules (never from scale(0)). */
+.animate-overlay-in {
+  animation: fade-in 200ms var(--ease-out) both;
+}
+.animate-modal-in {
+  animation: step-enter 200ms var(--ease-out) both;
+}
+
 /* Staggered card entrance — each objective card delays by ~50ms via an inline
    --stagger-index custom property set in JSX. */
 .animate-card-enter {
@@ -155,7 +164,9 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .animate-step-enter,
   .animate-fade-in,
-  .animate-card-enter {
+  .animate-card-enter,
+  .animate-overlay-in,
+  .animate-modal-in {
     animation: fade-in 1ms linear both;
   }
   .press {

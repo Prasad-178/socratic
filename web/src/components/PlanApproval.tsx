@@ -119,8 +119,8 @@ export function PlanApprovalCard({
       <CardContent className="flex flex-col gap-5">
         {objectives.length === 0 ? (
           <p className="rounded-[var(--radius)] border border-dashed border-[var(--border)] p-4 text-sm text-[var(--muted-foreground)]">
-            No objectives left. Add a note below and regenerate, or approve an
-            empty plan.
+            No topics left. Add a note below and regenerate, or approve an empty
+            plan.
           </p>
         ) : (
           <ol className="flex flex-col gap-3">
@@ -135,7 +135,7 @@ export function PlanApprovalCard({
                     {i + 1}
                   </span>
                   <Input
-                    aria-label={`Objective ${i + 1} title`}
+                    aria-label={`Topic ${i + 1} title`}
                     value={o.title}
                     onChange={(e) => updateTitle(o.id, e.target.value)}
                     disabled={submitted}
@@ -153,7 +153,7 @@ export function PlanApprovalCard({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    aria-label={`Remove objective ${i + 1}`}
+                    aria-label={`Remove topic ${i + 1}`}
                     onClick={() => removeObjective(o.id)}
                     disabled={submitted}
                     className="mt-0.5 shrink-0 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"

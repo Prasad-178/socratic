@@ -51,8 +51,8 @@ function readMcqPayload(raw: unknown): Mcq | null {
 /**
  * Quiz progress header derived from the agent's shared state.
  *
- * Shows "Objective N of M · Question N of M" plus the objective title. If any
- * field is briefly unavailable (state still catching up), it degrades to just
+ * Shows "Topic N of M · Question N of M" plus the topic title. If any field is
+ * briefly unavailable (state still catching up), it degrades to just
  * "Question".
  */
 function QuizProgress({ mcq }: { mcq: Mcq }) {
@@ -81,7 +81,7 @@ function QuizProgress({ mcq }: { mcq: Mcq }) {
 
   let label: string;
   if (haveObj && haveQ) {
-    label = `Objective ${objN} of ${objTotal} · Question ${qN} of ${qTotal}`;
+    label = `Topic ${objN} of ${objTotal} · Question ${qN} of ${qTotal}`;
   } else if (haveQ) {
     label = `Question ${qN} of ${qTotal}`;
   } else {

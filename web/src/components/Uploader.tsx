@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { Badge } from "@/components/ui/badge";
+import { useLessonSettings } from "@/hooks/use-lesson-settings";
 
 interface UploadResult {
   document_id: string;
@@ -43,6 +43,10 @@ export function Uploader() {
   // useAgent() with no agentId resolves to the default agent (keyed "default"
   // in api/copilotkit route.ts), exactly like the example's ExampleCanvas.
   const { agent } = useAgent();
+
+  // User-tunable lesson settings (from the "Lesson settings" modal). These are
+  // snake_cased into the kickoff state so the agent reads them at run start.
+  const { questionsPerObjective, maxObjectives } = useLessonSettings();
 
   const [status, setStatus] = useState<Status>("idle");
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -85,14 +89,18 @@ export function Uploader() {
         // seeds the LangGraph graph state (read by plan_node / route_entry).
         // useAgentContext above is supplementary LLM-visible context only —
         // do NOT remove setState thinking it's redundant.
-        agent.setState({ document_id: data.document_id });
+        agent.setState({
+          document_id: data.document_id,
+          max_objectives: maxObjectives,
+          questions_per_objective: questionsPerObjective,
+        });
         agent.runAgent();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed");
         setStatus("error");
       }
     },
-    [agent],
+    [agent, maxObjectives, questionsPerObjective],
   );
 
   const onInputChange = useCallback(
@@ -141,9 +149,9 @@ export function Uploader() {
         <span className="truncate font-medium text-[var(--foreground)]">
           {result.filename}
         </span>
-        <Badge variant="secondary" className="shrink-0">
-          {result.chunks} chunks
-        </Badge>
+        <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
+          Ready
+        </span>
         <Button
           type="button"
           variant="ghost"
