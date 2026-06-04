@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+tests/
+.pytest_cache
+.ruff_cache
+*.egg-info
+dist/
+build/
+# Optional: exclude PDF test fixtures (large binaries)
+tests/fixtures/*.pdf
