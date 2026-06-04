@@ -64,11 +64,23 @@ async def summarize_node(state: SocraticState) -> dict:
     so Summary.tsx renders a clean list), and the structured score ``report``.
     """
     report = compute_report(state.get("results", []))
+    # Map objective ids -> human-readable topic titles so the tips never leak a
+    # raw identifier like "OBJ002". The LLM only ever sees the titles.
+    id_to_title = {
+        o.get("id"): o.get("title", "this topic") for o in state.get("objectives", [])
+    }
+    weak_titles = [id_to_title.get(oid, "this topic") for oid in report["weak_objectives"]]
+    focus = (
+        ", ".join(f'"{t}"' for t in weak_titles)
+        if weak_titles
+        else "none in particular — they did well across the board"
+    )
     tips = await generate_structured(
-        "Write an encouraging summary for a learner who scored "
-        f"{report['correct']}/{report['total']} on a quiz. The topics they "
-        f"struggled with most (needed retries): {report['weak_objectives']}. "
+        "Write an encouraging summary for a learner who just finished a quiz, "
+        f"scoring {report['correct']} out of {report['total']}. "
+        f"The topics they found hardest (needed the most retries): {focus}. "
         "Give one warm headline and exactly 3 concise, actionable study tips. "
+        "Refer to any topic by its NAME only — never use codes, ids, or identifiers. "
         "Plain sentences only — no markdown, no bullet characters.",
         _StudyTips,
     )
