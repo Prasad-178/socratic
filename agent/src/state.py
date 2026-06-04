@@ -83,7 +83,11 @@ class SocraticState(TypedDict, total=False):
     plan: dict | None
     objectives: list[dict]
     current_objective_idx: int
-    current_mcqs: list[dict]
+    # all_mcqs: every question for every topic, generated upfront right after
+    # plan approval so the quiz runs with no mid-lesson "preparing" pauses. Each
+    # entry is an MCQ dict enriched with UI progress fields (topic_number,
+    # topic_total, question_number, question_total, objective_title, difficulty).
+    all_mcqs: list[dict]
     current_mcq_idx: int
     results: Annotated[list[dict], operator.add]
     messages: Annotated[list[AnyMessage], add_messages]
@@ -92,5 +96,6 @@ class SocraticState(TypedDict, total=False):
     feedback: str | None
     # Persisted after summarize_node so Summary.tsx reads structured data
     # rather than reconstructing from raw messages or falling back to UUIDs.
-    summary: str  # plain-text study tips (coerced from the LLM AIMessage)
+    headline: str  # one-line encouraging summary line
+    study_tips: list[str]  # structured, markdown-free study tips (Summary.tsx renders a list)
     report: dict  # output of compute_report: total/correct/by_objective/weak_objectives

@@ -109,45 +109,50 @@ async def build_mcqs_from_chunks(
 
 
 # ---------------------------------------------------------------------------
-# Loop nodes
+# Quiz nodes: generate ALL questions upfront, then ask them one at a time
 # ---------------------------------------------------------------------------
 
-def select_objective_node(state: SocraticState) -> Command:
-    """Route to the next objective's quiz, or to summarize when exhausted."""
-    idx = state.get("current_objective_idx", 0)
-    objectives = state.get("objectives", [])
-    if idx >= len(objectives):
-        return Command(goto="summarize", update={"phase": "summarizing"})
-    return Command(goto="generate_mcqs", update={"phase": "quizzing"})
+async def generate_all_mcqs_node(state: SocraticState) -> dict:
+    """Generate every question for every topic, once, right after approval.
 
-
-async def generate_mcqs_node(state: SocraticState) -> dict:
-    """Retrieve grounded context for the current objective and build its MCQs.
-
-    ``objectives`` are stored as dicts; re-validate the current one through
-    ``Objective`` for typed access, and store the generated MCQs as dicts.
+    Producing the whole quiz upfront means the learner never sees a "preparing"
+    pause between topics (just one prep step after approval). Each MCQ dict is
+    enriched with UI progress fields so the widget can show "Topic N of M ·
+    Question N of M" straight from the interrupt payload.
     """
-    obj = Objective(**state["objectives"][state["current_objective_idx"]])
-    chunks = retrieve(
-        f"{obj.title}. {' '.join(obj.key_points)}",
-        document_id=state["document_id"],
-    )
+    objectives = state.get("objectives", [])
     n = state.get("questions_per_objective") or 2
-    mcqs = await build_mcqs_from_chunks(obj, chunks, n=n)
-    return {"current_mcqs": [m.model_dump() for m in mcqs], "current_mcq_idx": 0}
+    topic_total = len(objectives)
+    all_mcqs: list[dict] = []
+    for ti, obj_dict in enumerate(objectives):
+        obj = Objective(**obj_dict)
+        chunks = retrieve(
+            f"{obj.title}. {' '.join(obj.key_points)}",
+            document_id=state["document_id"],
+        )
+        mcqs = await build_mcqs_from_chunks(obj, chunks, n=n)
+        q_total = len(mcqs)
+        for qi, m in enumerate(mcqs):
+            d = m.model_dump()
+            d["objective_title"] = obj.title
+            d["difficulty"] = obj.difficulty
+            d["topic_number"] = ti + 1
+            d["topic_total"] = topic_total
+            d["question_number"] = qi + 1
+            d["question_total"] = q_total
+            all_mcqs.append(d)
+    return {"all_mcqs": all_mcqs, "current_mcq_idx": 0, "phase": "quizzing"}
 
 
 def ask_mcq_node(state: SocraticState) -> Command:
-    """Deliver the current MCQ via ``interrupt()`` and record the outcome.
+    """Deliver the current question via ``interrupt()`` and record the outcome.
 
-    The node is re-run on resume, so the ``interrupt()`` is the FIRST thing it
-    does — everything before it must be idempotent (it just reads state). The
-    resume value carries the user's outcome for the whole question.
-
-    When the objective's MCQs are exhausted, advances to the next objective
-    via ``select_objective``; otherwise re-enters itself for the next MCQ.
+    The node re-runs on resume, so ``interrupt()`` is the FIRST thing it does —
+    everything before it just reads state (idempotent). The resume value carries
+    the user's outcome for the whole question. When the questions are exhausted,
+    routes to ``summarize``; otherwise re-enters itself for the next question.
     """
-    mcqs = state.get("current_mcqs", [])
+    mcqs = state.get("all_mcqs", [])
     idx = state.get("current_mcq_idx", 0)
     mcq = mcqs[idx]  # already a JSON-native dict in state
 
@@ -163,16 +168,11 @@ def ask_mcq_node(state: SocraticState) -> Command:
 
     next_idx = idx + 1
     if next_idx < len(mcqs):
-        # Stay on this objective; re-enter ask_mcq for the next MCQ.
         return Command(
             goto="ask_mcq",
             update={"results": [rec], "current_mcq_idx": next_idx},
         )
-    # Objective finished — advance to the next one.
     return Command(
-        goto="select_objective",
-        update={
-            "results": [rec],
-            "current_objective_idx": state.get("current_objective_idx", 0) + 1,
-        },
+        goto="summarize",
+        update={"results": [rec], "phase": "summarizing"},
     )

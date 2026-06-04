@@ -1,9 +1,8 @@
 """Unit tests for the summarize report (PURE) and summarize_node output shape."""
 import pytest
-from langchain_core.messages import AIMessage
 
 import src.nodes.summarize as summarize_mod
-from src.nodes.summarize import compute_report
+from src.nodes.summarize import _StudyTips, compute_report
 from src.state import MCQResult
 
 
@@ -46,15 +45,14 @@ def test_compute_report_counts_incorrect():
 # summarize_node output shape
 # ---------------------------------------------------------------------------
 
-class _FakeChat:
-    async def ainvoke(self, _prompt):
-        return AIMessage(content="Tip A. Tip B. Tip C.")
+async def _fake_summary_gen(prompt, schema, **kwargs):
+    return _StudyTips(headline="Well done!", tips=["Tip A", "Tip B", "Tip C"])
 
 
 @pytest.mark.asyncio
-async def test_summarize_node_persists_summary_and_report(monkeypatch):
-    """summarize_node must return summary (str) and report (dict) alongside messages."""
-    monkeypatch.setattr(summarize_mod, "get_chat_model", lambda **kw: _FakeChat())
+async def test_summarize_node_persists_tips_and_report(monkeypatch):
+    """summarize_node returns a headline, a list of study_tips, and the report."""
+    monkeypatch.setattr(summarize_mod, "generate_structured", _fake_summary_gen)
 
     from src.nodes.summarize import summarize_node
 
@@ -66,14 +64,12 @@ async def test_summarize_node_persists_summary_and_report(monkeypatch):
     out = await summarize_node(state)
 
     assert out["phase"] == "done"
-    # summary must be a plain string (JSON-serialisable)
-    assert isinstance(out["summary"], str)
-    assert "Tip A" in out["summary"]
+    assert isinstance(out["headline"], str) and out["headline"]
+    # study_tips is a markdown-free list
+    assert out["study_tips"] == ["Tip A", "Tip B", "Tip C"]
     # report must contain the expected keys
     assert isinstance(out["report"], dict)
     assert out["report"]["total"] == 1
     assert out["report"]["correct"] == 1
     assert "by_objective" in out["report"]
     assert "weak_objectives" in out["report"]
-    # messages list must still contain the AIMessage (for the add_messages reducer)
-    assert len(out["messages"]) == 1

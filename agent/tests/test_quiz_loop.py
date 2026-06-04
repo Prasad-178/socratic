@@ -15,17 +15,16 @@ the focus is squarely on the intra-objective MCQ loop.
 import src.nodes.quiz as quiz_mod
 import src.nodes.summarize as summarize_mod
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from src.graph import build_graph
 from src.nodes.quiz import _GenMCQ
+from src.nodes.summarize import _StudyTips
 
 
-class _FakeChat:
-    async def ainvoke(self, _prompt):
-        return AIMessage(content="Tip 1. Tip 2. Tip 3.")
+async def _fake_summary_gen(prompt, schema, **kwargs):
+    return _StudyTips(headline="Nice work!", tips=["Tip 1", "Tip 2", "Tip 3"])
 
 
 def _seed_one_objective() -> dict:
@@ -67,7 +66,7 @@ def _install_quiz_fakes(monkeypatch):
 
     monkeypatch.setattr(quiz_mod, "retrieve", fake_retrieve)
     monkeypatch.setattr(quiz_mod, "generate_structured", fake_quiz_gen)
-    monkeypatch.setattr(summarize_mod, "get_chat_model", lambda **kw: _FakeChat())
+    monkeypatch.setattr(summarize_mod, "generate_structured", _fake_summary_gen)
 
 
 async def test_within_objective_multi_mcq_advance(monkeypatch):
@@ -82,14 +81,11 @@ async def test_within_objective_multi_mcq_advance(monkeypatch):
     objectives = r["__interrupt__"][0].value["plan"]
     assert len(objectives) == 1
 
-    # 2) Approve -> generate_mcqs builds n=2 MCQs -> first mcq interrupt.
+    # 2) Approve -> generate_all_mcqs builds n=2 MCQs upfront -> first mcq interrupt.
     r = await graph.ainvoke(
         Command(resume={"action": "approve", "plan": objectives}), cfg
     )
     assert r["__interrupt__"][0].value["type"] == "mcq"
-
-    # While on the (single) objective, idx must still be 0.
-    assert graph.get_state(cfg).values["current_objective_idx"] == 0
 
     seen_mcq_ids: list[str] = []
     guard = 0
@@ -122,9 +118,5 @@ async def test_within_objective_multi_mcq_advance(monkeypatch):
     assert {r["mcq_id"] for r in results} == set(seen_mcq_ids)
     assert all(res["correct"] for res in results)
 
-    # The objective index advanced exactly once (the second MCQ re-entered
-    # ask_mcq on the SAME objective; only after exhausting both did it move on).
-    assert final["current_objective_idx"] == 1
-
-    # No more objectives -> the run summarized.
+    # All questions answered -> the run summarized.
     assert final["phase"] == "done"

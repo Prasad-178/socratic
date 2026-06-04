@@ -54,6 +54,10 @@ async def main():
             mcq_count += 1
             if mcq_count <= 2:  # show the first couple in detail
                 _rule(f"3) MCQ #{mcq_count}  (grounded, real LLM)")
+                print(
+                    f"   [Topic {mcq.get('topic_number')}/{mcq.get('topic_total')}"
+                    f" · Q {mcq.get('question_number')}/{mcq.get('question_total')}]"
+                )
                 print(f"   Q: {mcq['question']}")
                 for i, opt in enumerate(mcq["options"]):
                     mark = "*" if i == mcq["correct_index"] else " "
@@ -73,12 +77,10 @@ async def main():
             break
 
     _rule("4) SUMMARY")
-    print(f"   phase={result.get('phase')}  total MCQs answered={mcq_count}")
-    print(f"   results recorded={len(result.get('results', []))}")
-    msgs = result.get("messages", [])
-    if msgs:
-        tips = getattr(msgs[-1], "content", str(msgs[-1]))
-        print(f"   study tips: {str(tips)[:400]}")
+    print(f"   phase={result.get('phase')}  questions answered={mcq_count}")
+    print(f"   headline: {result.get('headline')}")
+    for t in result.get("study_tips", []):
+        print(f"     - {t}")
 
     _rule("5) GUARDRAIL  (real model, must NOT leak the answer)")
     q = "What is the Chandrasekhar limit?"

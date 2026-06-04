@@ -13,19 +13,18 @@ import src.nodes.plan as plan_mod
 import src.nodes.quiz as quiz_mod
 import src.nodes.summarize as summarize_mod
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from src.graph import build_graph
 from src.nodes.plan import _ChunkObjectives, _ConsolidatedPlan
 from src.nodes.quiz import _GenMCQ
+from src.nodes.summarize import _StudyTips
 from src.state import Objective
 
 
-class _FakeChat:
-    async def ainvoke(self, _prompt):
-        return AIMessage(content="Tip 1. Tip 2. Tip 3.")
+async def _fake_summary_gen(prompt, schema, **kwargs):
+    return _StudyTips(headline="Great job!", tips=["Tip 1", "Tip 2", "Tip 3"])
 
 
 def _install_fakes(monkeypatch):
@@ -65,8 +64,8 @@ def _install_fakes(monkeypatch):
     monkeypatch.setattr(quiz_mod, "retrieve", fake_retrieve)
     monkeypatch.setattr(quiz_mod, "generate_structured", fake_quiz_gen)
 
-    # --- summarize: fake chat model ---
-    monkeypatch.setattr(summarize_mod, "get_chat_model", lambda **kw: _FakeChat())
+    # --- summarize: fake structured study tips ---
+    monkeypatch.setattr(summarize_mod, "generate_structured", _fake_summary_gen)
 
 
 async def test_e2e_happy_path(monkeypatch):
@@ -118,7 +117,6 @@ async def test_e2e_happy_path(monkeypatch):
     assert len(final["results"]) == guard
     # results are stored as JSON-native dicts (msgpack-clean for durable HITL)
     assert all(res["correct"] for res in final["results"])
-    # A study-tips message was appended.
-    assert any(
-        getattr(m, "content", "").startswith("Tip 1") for m in final.get("messages", [])
-    )
+    # Structured study tips + headline were persisted (markdown-free).
+    assert final["study_tips"][0] == "Tip 1"
+    assert final["headline"]

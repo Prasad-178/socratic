@@ -3,8 +3,19 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from src.llm import get_chat_model
+from pydantic import BaseModel, Field
+
+from src.llm import generate_structured
 from src.state import MCQResult, SocraticState
+
+
+class _StudyTips(BaseModel):
+    """Structured (markdown-free) summary the UI renders as a clean list."""
+
+    headline: str = Field(description="One warm, encouraging one-line summary.")
+    tips: list[str] = Field(
+        description="3 concise, actionable study tips. Plain sentences, NO markdown."
+    )
 
 
 def compute_report(results: list[MCQResult | dict]) -> dict:
@@ -47,25 +58,23 @@ def compute_report(results: list[MCQResult | dict]) -> dict:
 
 
 async def summarize_node(state: SocraticState) -> dict:
-    """Produce a final report and LLM-generated study tips.
+    """Produce a final report and STRUCTURED study tips.
 
-    Persists both the plain-text tips (``summary``) and the structured score
-    breakdown (``report``) so Summary.tsx can render them without parsing
-    raw messages or falling back to objective UUIDs.
+    Persists a one-line ``headline``, a list of ``study_tips`` (markdown-free,
+    so Summary.tsx renders a clean list), and the structured score ``report``.
     """
     report = compute_report(state.get("results", []))
-    tips = await get_chat_model().ainvoke(
-        "Give 3 concise, personalized study tips for a learner who scored "
-        f"{report['correct']}/{report['total']} on a quiz. The objective ids "
-        f"they struggled with most (needed retries): {report['weak_objectives']}. "
-        "Keep it warm and actionable."
+    tips = await generate_structured(
+        "Write an encouraging summary for a learner who scored "
+        f"{report['correct']}/{report['total']} on a quiz. The topics they "
+        f"struggled with most (needed retries): {report['weak_objectives']}. "
+        "Give one warm headline and exactly 3 concise, actionable study tips. "
+        "Plain sentences only — no markdown, no bullet characters.",
+        _StudyTips,
     )
-    # Coerce the LLM response (AIMessage or plain str) to a plain string so
-    # state stays JSON-serialisable for the AG-UI wire format.
-    tips_text: str = tips.content if hasattr(tips, "content") else str(tips)
     return {
         "phase": "done",
-        "messages": [tips],
-        "summary": tips_text,
+        "headline": tips.headline,
+        "study_tips": tips.tips,
         "report": report,
     }

@@ -35,8 +35,7 @@ from langgraph.types import Command, interrupt
 from src.nodes.plan import make_plan_subgraph
 from src.nodes.quiz import (
     ask_mcq_node,
-    generate_mcqs_node,
-    select_objective_node,
+    generate_all_mcqs_node,
 )
 from src.nodes.summarize import summarize_node
 from src.state import Objective, Plan, SocraticState
@@ -88,12 +87,12 @@ def approve_plan_node(state: SocraticState) -> Command:
             for o in edited
         ]
         return Command(
-            goto="select_objective",
+            goto="generate_all_mcqs",
             update={
                 "objectives": objectives,
                 "plan_status": "approved",
                 "current_objective_idx": 0,
-                "phase": "quizzing",
+                "phase": "preparing_quiz",
             },
         )
     # regenerate
@@ -149,23 +148,17 @@ def build_graph() -> StateGraph:
     g.add_node(
         "approve_plan",
         approve_plan_node,
-        destinations=("select_objective", "plan"),
+        destinations=("generate_all_mcqs", "plan"),
     )
-    g.add_node(
-        "select_objective",
-        select_objective_node,
-        destinations=("generate_mcqs", "summarize"),
-    )
-    g.add_node("generate_mcqs", generate_mcqs_node)
-    g.add_node("ask_mcq", ask_mcq_node, destinations=("ask_mcq", "select_objective"))
+    g.add_node("generate_all_mcqs", generate_all_mcqs_node)
+    g.add_node("ask_mcq", ask_mcq_node, destinations=("ask_mcq", "summarize"))
     g.add_node("summarize", summarize_node)
 
     g.add_conditional_edges(START, route_entry, ["plan", "approve_plan"])
-    # plan -> approve_plan and approve_plan -> {select_objective, plan} are
-    # handled by Command(goto=...) returned from the nodes; select_objective,
-    # ask_mcq likewise route via Command. generate_mcqs falls through to
-    # ask_mcq with a static edge.
-    g.add_edge("generate_mcqs", "ask_mcq")
+    # plan -> approve_plan and approve_plan -> {generate_all_mcqs, plan} are
+    # handled by Command(goto=...). generate_all_mcqs falls through to ask_mcq
+    # with a static edge; ask_mcq loops or routes to summarize via Command.
+    g.add_edge("generate_all_mcqs", "ask_mcq")
     g.add_edge("summarize", END)
 
     return g
