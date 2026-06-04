@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 from pathlib import Path
 
 import psycopg
@@ -19,6 +20,12 @@ from src.settings import settings
 from src.llm import get_embeddings
 
 COLLECTION = "socratic_docs"
+
+log = logging.getLogger(__name__)
+
+# Cap on how many chunks we fan out over when planning, to bound LLM cost on
+# large books. The first N chunks usually cover the document's structure well.
+MAX_PLAN_CHUNKS = 40
 
 # ---------------------------------------------------------------------------
 # Memoized singletons  (FIX M1 + M6)
@@ -276,3 +283,43 @@ def ingest_document(path: Path, document_id: str) -> int:
     _get_store().add_documents(docs)
     ensure_hnsw_index()
     return len(docs)
+
+
+# ---------------------------------------------------------------------------
+# Chunk loading for plan map-reduce
+# ---------------------------------------------------------------------------
+
+def load_chunk_texts(document_id: str, *, limit: int = MAX_PLAN_CHUNKS) -> list[str]:
+    """Return the raw chunk texts for *document_id*, capped at *limit*.
+
+    Reads the ``document`` column from ``langchain_pg_embedding`` filtered by
+    the ``document_id`` JSONB metadata key. Used to fan out the planning
+    map-reduce over the document's chunks without re-parsing the PDF.
+
+    Caps to *limit* chunks (default :data:`MAX_PLAN_CHUNKS`) to bound LLM cost
+    on large books; logs a warning when truncation occurs.
+    """
+    dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(dsn) as conn:
+        total = conn.execute(
+            "SELECT count(*) FROM langchain_pg_embedding "
+            "WHERE cmetadata->>'document_id' = %s;",
+            (document_id,),
+        ).fetchone()
+        rows = conn.execute(
+            "SELECT document FROM langchain_pg_embedding "
+            "WHERE cmetadata->>'document_id' = %s "
+            "ORDER BY id LIMIT %s;",
+            (document_id, limit),
+        ).fetchall()
+
+    total_count = total[0] if total else 0
+    if total_count > limit:
+        log.warning(
+            "load_chunk_texts: document %s has %d chunks; capping plan fan-out "
+            "to the first %d.",
+            document_id,
+            total_count,
+            limit,
+        )
+    return [r[0] for r in rows if r[0]]

@@ -1,0 +1,38 @@
+"""Unit tests for the summarize report (PURE)."""
+from src.nodes.summarize import compute_report
+from src.state import MCQResult
+
+
+def test_compute_report_scores_and_flags_weak_objectives():
+    results = [
+        MCQResult(mcq_id="1", objective_id="o1", chosen_index=0, correct=True, attempts=1),
+        MCQResult(mcq_id="2", objective_id="o2", chosen_index=1, correct=True, attempts=3),
+    ]
+    report = compute_report(results)
+    assert report["total"] == 2
+    assert report["correct"] == 2
+    # o2 needed 3 attempts for 1 question -> retried -> weak; o1 was 1-for-1.
+    assert report["weak_objectives"] == ["o2"]
+
+
+def test_compute_report_orders_weak_by_most_retries():
+    results = [
+        MCQResult(mcq_id="1", objective_id="o1", chosen_index=0, correct=True, attempts=2),
+        MCQResult(mcq_id="2", objective_id="o2", chosen_index=1, correct=False, attempts=4),
+        MCQResult(mcq_id="3", objective_id="o3", chosen_index=2, correct=True, attempts=1),
+    ]
+    report = compute_report(results)
+    # o2 (4 attempts) before o1 (2 attempts); o3 (1-for-1) not weak.
+    assert report["weak_objectives"] == ["o2", "o1"]
+    assert "o3" not in report["weak_objectives"]
+
+
+def test_compute_report_counts_incorrect():
+    results = [
+        MCQResult(mcq_id="1", objective_id="o1", chosen_index=0, correct=True, attempts=1),
+        MCQResult(mcq_id="2", objective_id="o1", chosen_index=1, correct=False, attempts=1),
+    ]
+    report = compute_report(results)
+    assert report["total"] == 2
+    assert report["correct"] == 1
+    assert report["by_objective"]["o1"] == {"attempts": 2, "correct": 1, "n": 2}
