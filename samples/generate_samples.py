@@ -27,6 +27,7 @@ DOCS: dict[str, str] = {
     "cs_tcp_udp.pdf": "cs_tcp_udp.html",
     "finance_time_value_money.pdf": "finance_time_value_money.html",
     "astronomy_star_lifecycle.pdf": "astronomy_star_lifecycle.html",
+    "ai_rag_vector_dbs.pdf": "ai_rag_vector_dbs.html",
 }
 
 

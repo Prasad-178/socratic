@@ -178,7 +178,7 @@ sequenceDiagram
     UI->>CK: resolve(payload)
     CK->>B: forwardedProps.command.resume = payload
     B->>G: Command(resume=payload)
-    Note over G: graph RESUMES; interrupt() returns the payload
+    Note over G: graph RESUMES — interrupt returns the payload
 ```
 
 **Two gotchas baked into the implementation:**
