@@ -25,6 +25,10 @@ from src.state import Objective, Plan
 
 _DIFFICULTY_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
 
+# The map step over-produces (1-2 objectives per chunk); cap the consolidated
+# lesson so the quiz stays a reasonable length.
+MAX_OBJECTIVES = 6
+
 
 class _PlanState(TypedDict, total=False):
     """Internal state for the planning subgraph.
@@ -45,6 +49,26 @@ class _ChunkObjectives(BaseModel):
     """Structured-output schema: objectives extracted from one chunk."""
 
     objectives: list[Objective]
+
+
+class _ConsolidatedPlan(BaseModel):
+    """Structured-output schema: the consolidated, deduplicated objective set."""
+
+    objectives: list[Objective]
+    summary: str
+
+
+_CONSOLIDATE_PROMPT = (
+    "You are designing a single coherent lesson. Below are candidate learning "
+    "objectives extracted independently from different parts of one document, so "
+    "many overlap or duplicate each other.\n\n"
+    "Consolidate them into AT MOST {n} DISTINCT, non-overlapping objectives that "
+    "together cover the material, ordered from foundational to advanced. Merge "
+    "duplicates and near-duplicates into a single objective. Each needs a clear "
+    "title, a one-sentence description, a difficulty (beginner|intermediate|"
+    "advanced), 2-4 key_points, and a short unique id. Also write a one-sentence "
+    "lesson summary.\n\nCANDIDATE OBJECTIVES:\n{listing}"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -91,12 +115,25 @@ async def analyze_chunk_node(payload: dict) -> dict:
 # Reduce: dedupe candidates into a Plan (PURE)
 # ---------------------------------------------------------------------------
 
-def reduce_objectives(candidates: list[Objective]) -> Plan:
-    """Dedupe objectives by title and compute the overall difficulty.
+def _plan_from(objectives: list[Objective], summary: str | None = None) -> Plan:
+    """Build a Plan from objectives, deriving the overall difficulty."""
+    overall = max(
+        (o.difficulty for o in objectives),
+        key=lambda d: _DIFFICULTY_ORDER[d],
+        default="beginner",
+    )
+    return Plan(
+        objectives=objectives,
+        overall_difficulty=overall,
+        summary=summary or f"{len(objectives)} objectives covering the document.",
+    )
 
-    Pure function — no I/O. Difficulty is the max difficulty across the
-    deduped objectives. Returns an empty-but-valid plan when given no
-    candidates.
+
+def reduce_objectives(candidates: list[Objective]) -> Plan:
+    """Dedupe objectives by exact title (pure pre-filter / fallback).
+
+    Pure function — no I/O. Used to shrink the candidate set before the LLM
+    consolidation pass and as the fallback if that pass fails.
     """
     seen: set[str] = set()
     merged: list[Objective] = []
@@ -105,21 +142,38 @@ def reduce_objectives(candidates: list[Objective]) -> Plan:
         if key and key not in seen:
             seen.add(key)
             merged.append(o)
-    overall = max(
-        (o.difficulty for o in merged),
-        key=lambda d: _DIFFICULTY_ORDER[d],
-        default="beginner",
-    )
-    return Plan(
-        objectives=merged,
-        overall_difficulty=overall,
-        summary=f"{len(merged)} objectives covering the document.",
-    )
+    return _plan_from(merged)
 
 
-def reduce_node(state: _PlanState) -> dict:
-    """Reduce accumulated candidates into a single Plan (stored as a dict)."""
-    return {"plan": reduce_objectives(state.get("candidates", [])).model_dump()}
+async def reduce_node(state: _PlanState) -> dict:
+    """Consolidate accumulated candidates into a clean, capped Plan.
+
+    The map step over-produces (1-2 objectives per chunk, with heavy semantic
+    overlap on real documents) and a pure title-dedup can't merge objectives
+    that say the same thing in different words. So we run one LLM consolidation
+    pass into <= MAX_OBJECTIVES distinct objectives, ordered foundational ->
+    advanced. Falls back to the pure title-dedup (capped) if the call fails.
+    """
+    pre = reduce_objectives(state.get("candidates", [])).objectives
+    if len(pre) <= 1:
+        return {"plan": _plan_from(pre).model_dump()}
+
+    listing = "\n".join(f"- [{o.difficulty}] {o.title}: {o.description}" for o in pre)
+    try:
+        result = await generate_structured(
+            _CONSOLIDATE_PROMPT.format(n=MAX_OBJECTIVES, listing=listing),
+            _ConsolidatedPlan,
+        )
+        objs = result.objectives[:MAX_OBJECTIVES]
+        for o in objs:
+            if not o.id:
+                o.id = uuid.uuid4().hex
+        if not objs:
+            raise ValueError("consolidation produced no objectives")
+        plan = _plan_from(objs, summary=result.summary)
+    except Exception:
+        plan = _plan_from(pre[:MAX_OBJECTIVES])
+    return {"plan": plan.model_dump()}
 
 
 # ---------------------------------------------------------------------------

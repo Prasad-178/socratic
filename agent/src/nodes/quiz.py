@@ -63,15 +63,25 @@ async def build_mcqs_from_chunks(
     )
 
     out: list[MCQ] = []
+    asked: list[str] = []
     for _ in range(n):
+        avoid = ""
+        if asked:
+            avoid = (
+                "\n\nThese questions were ALREADY asked for this objective — cover a "
+                "DIFFERENT aspect and do NOT repeat them:\n- " + "\n- ".join(asked)
+            )
+        key_points = ", ".join(obj.key_points) if obj.key_points else ""
         g = await generate_structured(
             f"Using ONLY the source below (cite page numbers drawn from {pages}), "
             f"write one multiple-choice question for the objective '{obj.title}'. "
-            "Provide EXACTLY 4 options with exactly one correct answer, a hint that "
-            "does NOT reveal the answer, and a short explanation.\n\n"
-            f"SOURCE:\n{context}",
+            + (f"Where possible, target one of these key points: {key_points}. " if key_points else "")
+            + "Provide EXACTLY 4 options with exactly one correct answer, a hint that "
+            "does NOT reveal the answer, and a short explanation."
+            f"{avoid}\n\nSOURCE:\n{context}",
             _GenMCQ,
         )
+        asked.append(g.question)
         # Constrain source pages to the pages we actually provided.
         constrained = [p for p in g.source_pages if p in pages]
         g.source_pages = constrained or pages

@@ -18,7 +18,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from src.graph import build_graph
-from src.nodes.plan import _ChunkObjectives
+from src.nodes.plan import _ChunkObjectives, _ConsolidatedPlan
 from src.nodes.quiz import _GenMCQ
 from src.state import Objective
 
@@ -32,20 +32,19 @@ def _install_fakes(monkeypatch):
     # --- plan: one distinct objective per chunk ---
     _counter = {"n": 0}
 
-    async def fake_plan_gen(prompt, schema, **kwargs):
-        _counter["n"] += 1
-        i = _counter["n"]
-        return _ChunkObjectives(
-            objectives=[
-                Objective(
-                    id=f"o{i}",
-                    title=f"Objective {i}",
-                    description="d",
-                    difficulty="beginner",
-                    key_points=["k"],
-                )
-            ]
+    def _obj(i):
+        return Objective(
+            id=f"o{i}", title=f"Objective {i}", description="d",
+            difficulty="beginner", key_points=["k"],
         )
+
+    async def fake_plan_gen(prompt, schema, **kwargs):
+        # The reduce step now runs an LLM consolidation pass over the candidates.
+        if schema is _ConsolidatedPlan:
+            return _ConsolidatedPlan(objectives=[_obj(1), _obj(2)], summary="two objectives")
+        # Otherwise it's the per-chunk extraction: one distinct objective per chunk.
+        _counter["n"] += 1
+        return _ChunkObjectives(objectives=[_obj(_counter["n"])])
 
     monkeypatch.setattr(plan_mod, "generate_structured", fake_plan_gen)
 

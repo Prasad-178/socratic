@@ -249,6 +249,11 @@ def _check_dimension_before_insert() -> None:
     configured = _configured_dim()
     dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
     with psycopg.connect(dsn) as conn:
+        # On a fresh DB the table doesn't exist yet — PGVector creates it on the
+        # first add_documents(). Nothing on disk to clash with, so skip the check.
+        exists = conn.execute("SELECT to_regclass('langchain_pg_embedding');").fetchone()
+        if exists is None or exists[0] is None:
+            return
         dim_row = conn.execute(
             "SELECT vector_dims(embedding) "
             "FROM langchain_pg_embedding LIMIT 1;"
