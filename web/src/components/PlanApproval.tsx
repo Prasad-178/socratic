@@ -7,6 +7,7 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -15,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { parseInterruptValue } from "@/lib/utils";
 
 /**
  * One learning objective in the proposed lesson plan.
@@ -34,9 +36,15 @@ export interface Objective {
   [key: string]: unknown;
 }
 
-interface PlanApprovalPayload {
-  type: "plan_approval";
-  plan: Objective[];
+/**
+ * Reads a parsed interrupt payload (see `parseInterruptValue`) and returns the
+ * `plan_approval` objectives, or `null` if this isn't a plan-approval event.
+ */
+function readPlanPayload(raw: unknown): Objective[] | null {
+  const payload = parseInterruptValue(raw);
+  if (!payload || payload.type !== "plan_approval") return null;
+  const plan = payload.plan;
+  return Array.isArray(plan) ? (plan as Objective[]) : [];
 }
 
 const difficultyVariant = (
@@ -55,7 +63,7 @@ const difficultyVariant = (
 };
 
 /**
- * Editable todo-list card for the plan-approval interrupt.
+ * Editable plan-approval card for the plan-approval interrupt.
  *
  * Resolve contract (BYTE-for-BYTE with the agent):
  *   approve     → resolve({ action: "approve",    plan: <edited objectives> })
@@ -96,40 +104,47 @@ export function PlanApprovalCard({
   };
 
   return (
-    <Card className="my-4 w-full">
+    <Card className="w-full">
       <CardHeader>
-        <CardTitle>Review your lesson plan</CardTitle>
+        <Badge variant="secondary" className="w-fit">
+          Step 1 · Lesson plan
+        </Badge>
+        <CardTitle className="text-xl">Review your lesson plan</CardTitle>
         <CardDescription>
-          Edit the learning objectives below, then approve to start the quiz —
-          or send feedback to regenerate the plan.
+          Edit or trim the objectives below, then approve to start the quiz — or
+          send feedback to regenerate.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+
+      <CardContent className="flex flex-col gap-5">
         {objectives.length === 0 ? (
-          <p className="text-sm text-[var(--muted-foreground)]">
+          <p className="rounded-[var(--radius)] border border-dashed border-[var(--border)] p-4 text-sm text-[var(--muted-foreground)]">
             No objectives left. Add feedback and regenerate, or approve an empty
             plan.
           </p>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ol className="flex flex-col gap-3">
             {objectives.map((o, i) => (
               <li
                 key={o.id}
-                className="flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] p-3"
+                className="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[var(--muted-foreground)]">
-                    {i + 1}.
+                <div className="flex items-start gap-3">
+                  <span className="mt-2 flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--secondary)] text-xs font-semibold text-[var(--secondary-foreground)]">
+                    {i + 1}
                   </span>
                   <Input
                     aria-label={`Objective ${i + 1} title`}
                     value={o.title}
                     onChange={(e) => updateTitle(o.id, e.target.value)}
                     disabled={submitted}
-                    className="flex-1"
+                    className="flex-1 font-medium"
                   />
                   {o.difficulty && (
-                    <Badge variant={difficultyVariant(o.difficulty)}>
+                    <Badge
+                      variant={difficultyVariant(o.difficulty)}
+                      className="mt-1 shrink-0 capitalize"
+                    >
                       {o.difficulty}
                     </Badge>
                   )}
@@ -140,27 +155,36 @@ export function PlanApprovalCard({
                     aria-label={`Remove objective ${i + 1}`}
                     onClick={() => removeObjective(o.id)}
                     disabled={submitted}
+                    className="mt-0.5 shrink-0 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
                   >
                     ✕
                   </Button>
                 </div>
 
                 {o.description && (
-                  <p className="pl-6 text-sm text-[var(--muted-foreground)]">
+                  <p className="pl-9 text-sm text-[var(--muted-foreground)]">
                     {o.description}
                   </p>
                 )}
 
                 {o.key_points && o.key_points.length > 0 && (
-                  <ul className="list-disc pl-10 text-sm text-[var(--muted-foreground)]">
+                  <ul className="flex flex-col gap-1 pl-9">
                     {o.key_points.map((kp, kpi) => (
-                      <li key={kpi}>{kp}</li>
+                      <li
+                        key={kpi}
+                        className="flex gap-2 text-sm text-[var(--muted-foreground)]"
+                      >
+                        <span className="select-none text-[var(--muted-foreground)]">
+                          •
+                        </span>
+                        <span>{kp}</span>
+                      </li>
                     ))}
                   </ul>
                 )}
               </li>
             ))}
-          </ul>
+          </ol>
         )}
 
         <Separator />
@@ -170,7 +194,10 @@ export function PlanApprovalCard({
             htmlFor="plan-feedback"
             className="text-sm font-medium text-[var(--foreground)]"
           >
-            Feedback (only used when regenerating)
+            Feedback{" "}
+            <span className="font-normal text-[var(--muted-foreground)]">
+              (only used when regenerating)
+            </span>
           </label>
           <Textarea
             id="plan-feedback"
@@ -180,46 +207,52 @@ export function PlanApprovalCard({
             disabled={submitted}
           />
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={approve} disabled={submitted}>
-            Approve &amp; start quiz
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={regenerate}
-            disabled={submitted}
-          >
-            Regenerate plan
-          </Button>
-        </div>
-
-        {submitted && (
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Sent to the tutor…
-          </p>
-        )}
       </CardContent>
+
+      <CardFooter className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+        <Button
+          type="button"
+          onClick={approve}
+          disabled={submitted}
+          className="sm:flex-1"
+        >
+          Approve &amp; start quiz
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={regenerate}
+          disabled={submitted}
+        >
+          Regenerate plan
+        </Button>
+        {submitted && (
+          <span className="text-sm text-[var(--muted-foreground)] sm:ml-2">
+            Sent to the tutor…
+          </span>
+        )}
+      </CardFooter>
     </Card>
   );
 }
 
 /**
- * Registers the plan-approval interrupt handler. Renders nothing itself — the
- * card is published into the chat surface by `useInterrupt` (renderInChat
- * default), so the agent-driven UI appears inline in the conversation.
+ * Registers the plan-approval interrupt handler with `renderInChat: false`, so
+ * the hook RETURNS the card element (or `null` when idle) instead of publishing
+ * it into `<CopilotChat>`. The caller places the returned element in the main
+ * lesson panel.
+ *
+ * The AG-UI bridge delivers the interrupt payload as a JSON STRING in
+ * `event.value`; `readPlanPayload` (via `parseInterruptValue`) parses it before
+ * reading `.type` / `.plan` in BOTH `enabled` and `render`.
  */
-export function PlanApproval() {
-  useInterrupt<never>({
-    enabled: (event) =>
-      (event.value as PlanApprovalPayload | undefined)?.type ===
-      "plan_approval",
+export function usePlanApproval() {
+  return useInterrupt<never, false>({
+    renderInChat: false,
+    enabled: (event) => readPlanPayload(event.value) !== null,
     render: ({ event, resolve }) => {
-      const value = event.value as PlanApprovalPayload;
-      return <PlanApprovalCard plan={value.plan} resolve={resolve} />;
+      const plan = readPlanPayload(event.value) ?? [];
+      return <PlanApprovalCard plan={plan} resolve={resolve} />;
     },
   });
-
-  return null;
 }

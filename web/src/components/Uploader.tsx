@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Badge } from "@/components/ui/badge";
 
 interface UploadResult {
   document_id: string;
@@ -113,6 +114,49 @@ export function Uploader() {
 
   const isUploading = status === "uploading";
 
+  // Hidden file input shared by both the full drop zone and the collapsed
+  // "Change" affordance. Always mounted so `inputRef.current?.click()` works.
+  const fileInput = (
+    <Input
+      ref={inputRef}
+      type="file"
+      accept="application/pdf,.pdf"
+      className="hidden"
+      onChange={onInputChange}
+      disabled={isUploading}
+    />
+  );
+
+  // ── Collapsed state ──────────────────────────────────────────────────────
+  // Once a PDF is ingested, shrink the big drop zone to a slim strip so the
+  // lesson surface below takes focus. "Change" re-opens the picker (a new
+  // upload re-kicks the agent via handleFile).
+  if (status === "ready" && result) {
+    return (
+      <div className="flex items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-3.5 py-2.5 text-sm">
+        {fileInput}
+        <span aria-hidden className="text-base">
+          📄
+        </span>
+        <span className="truncate font-medium text-[var(--foreground)]">
+          {result.filename}
+        </span>
+        <Badge variant="secondary" className="shrink-0">
+          {result.chunks} chunks
+        </Badge>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto shrink-0 text-[var(--muted-foreground)]"
+          onClick={() => inputRef.current?.click()}
+        >
+          Change
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -127,14 +171,7 @@ export function Uploader() {
           onDragOver={(e) => e.preventDefault()}
           className="flex flex-col items-center justify-center gap-3 rounded-[var(--radius)] border border-dashed border-[var(--border)] bg-[var(--background)] px-6 py-10 text-center"
         >
-          <Input
-            ref={inputRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            className="hidden"
-            onChange={onInputChange}
-            disabled={isUploading}
-          />
+          {fileInput}
 
           {isUploading ? (
             <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
@@ -154,13 +191,6 @@ export function Uploader() {
                 Choose PDF
               </Button>
             </>
-          )}
-
-          {status === "ready" && result && (
-            <p className="text-sm text-[var(--primary)]">
-              Ingested <span className="font-medium">{result.filename}</span> —{" "}
-              {result.chunks} chunks. The tutor is planning your lesson…
-            </p>
           )}
 
           {status === "error" && error && (

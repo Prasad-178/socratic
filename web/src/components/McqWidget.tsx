@@ -14,9 +14,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
+import { cn, parseInterruptValue } from "@/lib/utils";
 
 export interface Mcq {
   id: string;
@@ -29,9 +30,16 @@ export interface Mcq {
   source_pages?: number[];
 }
 
-interface McqPayload {
-  type: "mcq";
-  mcq: Mcq;
+/**
+ * Reads a parsed interrupt payload (see `parseInterruptValue`) and returns the
+ * `mcq` object, or `null` if this isn't an MCQ event.
+ */
+function readMcqPayload(raw: unknown): Mcq | null {
+  const payload = parseInterruptValue(raw);
+  if (!payload || payload.type !== "mcq") return null;
+  const mcq = payload.mcq;
+  if (mcq && typeof mcq === "object") return mcq as Mcq;
+  return null;
 }
 
 /**
@@ -130,24 +138,28 @@ export function McqCard({
   };
 
   return (
-    <Card className="my-4 w-full">
+    <Card className="w-full">
       <CardHeader>
-        <CardTitle className="text-base">{mcq.question}</CardTitle>
-        <CardDescription>
-          Pick the best answer.
-          {attempts > 0 && (
-            <span className="ml-1">
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant="secondary" className="w-fit">
+            Step 2 · Quiz
+          </Badge>
+          {attempts > 0 && !resolved && (
+            <Badge variant="outline">
               Attempt{attempts === 1 ? "" : "s"}: {attempts}
-            </span>
+            </Badge>
           )}
-        </CardDescription>
+        </div>
+        <CardTitle className="text-lg leading-snug">{mcq.question}</CardTitle>
+        <CardDescription>Pick the best answer.</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+
+      <CardContent className="flex flex-col gap-5">
         <RadioGroup
           value={selected}
           onValueChange={setSelected}
           disabled={submitted || resolved}
-          className="gap-2"
+          className="gap-2.5"
         >
           {mcq.options.map((option, i) => {
             const optionId = `${mcq.id}-opt-${i}`;
@@ -159,8 +171,10 @@ export function McqCard({
                 key={optionId}
                 htmlFor={optionId}
                 className={cn(
-                  "flex cursor-pointer items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] p-3 transition-colors",
-                  !submitted && "hover:bg-[var(--secondary)]",
+                  "flex cursor-pointer items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] p-3.5 text-sm transition-colors",
+                  !submitted &&
+                    !resolved &&
+                    "hover:border-[var(--ring)] hover:bg-[var(--secondary)]",
                   // Correct option → green (shown after submit)
                   isThisCorrect &&
                     "border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100",
@@ -174,7 +188,17 @@ export function McqCard({
                   value={String(i)}
                   disabled={submitted || resolved}
                 />
-                <span className="text-sm">{option}</span>
+                <span className="flex-1">{option}</span>
+                {isThisCorrect && (
+                  <span aria-hidden className="font-semibold text-green-600">
+                    ✓
+                  </span>
+                )}
+                {isThisChosenWrong && (
+                  <span aria-hidden className="font-semibold text-red-600">
+                    ✕
+                  </span>
+                )}
               </Label>
             );
           })}
@@ -188,14 +212,18 @@ export function McqCard({
             disabled={selectedIndex < 0}
             className="self-start"
           >
-            Submit
+            Submit answer
           </Button>
         )}
 
         {isCorrect && !resolved && (
-          <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-green-500 bg-green-50 p-3 text-sm text-green-900 dark:bg-green-950 dark:text-green-100">
-            <p className="font-medium">Correct!</p>
-            {mcq.explanation && <p>{mcq.explanation}</p>}
+          <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-green-500 bg-green-50 p-4 text-sm text-green-900 dark:bg-green-950 dark:text-green-100">
+            <p className="font-semibold">Correct!</p>
+            {mcq.explanation && (
+              <p className="text-green-800 dark:text-green-200">
+                {mcq.explanation}
+              </p>
+            )}
             <Button type="button" onClick={onContinue} className="self-start">
               Continue
             </Button>
@@ -203,10 +231,10 @@ export function McqCard({
         )}
 
         {isWrong && !resolved && (
-          <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-red-500 bg-red-50 p-3 text-sm text-red-900 dark:bg-red-950 dark:text-red-100">
-            <p className="font-medium">Not quite.</p>
+          <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-red-500 bg-red-50 p-4 text-sm text-red-900 dark:bg-red-950 dark:text-red-100">
+            <p className="font-semibold">Not quite.</p>
             {mcq.hint && (
-              <p>
+              <p className="text-red-800 dark:text-red-200">
                 <span className="font-medium">Hint:</span> {mcq.hint}
               </p>
             )}
@@ -241,7 +269,7 @@ export function McqCard({
                 htmlFor={`${mcq.id}-tutor`}
                 className="text-sm font-medium text-[var(--foreground)]"
               >
-                Need a hint? Ask the tutor
+                Stuck? Ask the tutor for a hint
               </label>
               <div className="flex gap-2">
                 <Input
@@ -285,18 +313,24 @@ export function McqCard({
 }
 
 /**
- * Registers the MCQ interrupt handler. Renders nothing itself — the card is
- * published into the chat surface by `useInterrupt`.
+ * Registers the MCQ interrupt handler with `renderInChat: false`, so the hook
+ * RETURNS the card element (or `null` when idle) instead of publishing it into
+ * `<CopilotChat>`. The caller places the returned element in the main lesson
+ * panel.
+ *
+ * The AG-UI bridge delivers the interrupt payload as a JSON STRING in
+ * `event.value`; `readMcqPayload` (via `parseInterruptValue`) parses it before
+ * reading `.type` / `.mcq` in BOTH `enabled` and `render`.
  */
-export function McqWidget() {
-  useInterrupt<never>({
-    enabled: (event) =>
-      (event.value as McqPayload | undefined)?.type === "mcq",
+export function useMcq() {
+  return useInterrupt<never, false>({
+    renderInChat: false,
+    enabled: (event) => readMcqPayload(event.value) !== null,
     render: ({ event, resolve }) => {
-      const value = event.value as McqPayload;
-      return <McqCard mcq={value.mcq} resolve={resolve} />;
+      const mcq = readMcqPayload(event.value);
+      // `enabled` guaranteed a match, but stay defensive.
+      if (!mcq) return <></>;
+      return <McqCard mcq={mcq} resolve={resolve} />;
     },
   });
-
-  return null;
 }
