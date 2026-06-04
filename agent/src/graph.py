@@ -123,6 +123,8 @@ async def plan_node(state: SocraticState) -> Command:
     sub_in = {"document_id": state.get("document_id")}
     if state.get("chunk_texts"):
         sub_in["chunk_texts"] = state["chunk_texts"]
+    if state.get("max_objectives"):
+        sub_in["max_objectives"] = state["max_objectives"]
     result = await _plan_subgraph.ainvoke(sub_in)
     return Command(
         goto="approve_plan",

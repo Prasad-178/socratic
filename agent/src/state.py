@@ -75,6 +75,11 @@ class SocraticState(TypedDict, total=False):
 
     document_id: str
     chunk_texts: list[str]
+    # User-tunable lesson settings (seeded from the UI at kickoff; fall back to
+    # the node defaults when absent). max_objectives caps the plan size;
+    # questions_per_objective sets how many MCQs each objective generates.
+    max_objectives: int
+    questions_per_objective: int
     plan: dict | None
     objectives: list[dict]
     current_objective_idx: int

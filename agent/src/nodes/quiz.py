@@ -132,7 +132,8 @@ async def generate_mcqs_node(state: SocraticState) -> dict:
         f"{obj.title}. {' '.join(obj.key_points)}",
         document_id=state["document_id"],
     )
-    mcqs = await build_mcqs_from_chunks(obj, chunks, n=2)
+    n = state.get("questions_per_objective") or 2
+    mcqs = await build_mcqs_from_chunks(obj, chunks, n=n)
     return {"current_mcqs": [m.model_dump() for m in mcqs], "current_mcq_idx": 0}
 
 

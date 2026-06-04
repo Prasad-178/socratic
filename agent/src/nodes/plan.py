@@ -41,6 +41,7 @@ class _PlanState(TypedDict, total=False):
 
     document_id: str
     chunk_texts: list[str]
+    max_objectives: int
     candidates: Annotated[list[Objective], operator.add]
     plan: dict
 
@@ -154,6 +155,7 @@ async def reduce_node(state: _PlanState) -> dict:
     pass into <= MAX_OBJECTIVES distinct objectives, ordered foundational ->
     advanced. Falls back to the pure title-dedup (capped) if the call fails.
     """
+    cap = state.get("max_objectives") or MAX_OBJECTIVES
     pre = reduce_objectives(state.get("candidates", [])).objectives
     if len(pre) <= 1:
         return {"plan": _plan_from(pre).model_dump()}
@@ -161,10 +163,10 @@ async def reduce_node(state: _PlanState) -> dict:
     listing = "\n".join(f"- [{o.difficulty}] {o.title}: {o.description}" for o in pre)
     try:
         result = await generate_structured(
-            _CONSOLIDATE_PROMPT.format(n=MAX_OBJECTIVES, listing=listing),
+            _CONSOLIDATE_PROMPT.format(n=cap, listing=listing),
             _ConsolidatedPlan,
         )
-        objs = result.objectives[:MAX_OBJECTIVES]
+        objs = result.objectives[:cap]
         for o in objs:
             if not o.id:
                 o.id = uuid.uuid4().hex
@@ -172,7 +174,7 @@ async def reduce_node(state: _PlanState) -> dict:
             raise ValueError("consolidation produced no objectives")
         plan = _plan_from(objs, summary=result.summary)
     except Exception:
-        plan = _plan_from(pre[:MAX_OBJECTIVES])
+        plan = _plan_from(pre[:cap])
     return {"plan": plan.model_dump()}
 
 
