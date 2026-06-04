@@ -3,12 +3,14 @@ import shutil
 import tempfile
 import uuid
 import warnings
+from contextlib import asynccontextmanager
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load .env from the demo project root (one level up from agent/) BEFORE
-# importing src.agent — that import constructs ChatOpenAI at module load,
-# which needs OPENAI_API_KEY in the environment already.
+# importing application modules so pydantic settings pick it up. The imports
+# below therefore intentionally follow this call (E402 is expected/suppressed).
 _demo_root = Path(__file__).parent.parent
 for env_path in (_demo_root / ".env", Path(".env")):
     if env_path.is_file():
@@ -17,15 +19,74 @@ for env_path in (_demo_root / ".env", Path(".env")):
 else:
     load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile
-from fastapi.concurrency import run_in_threadpool
-import uvicorn
-from src.agent import graph
-from src.ingest import ingest_document
-from copilotkit import LangGraphAGUIAgent
-from ag_ui_langgraph import add_langgraph_fastapi_endpoint
+import uvicorn  # noqa: E402
+from ag_ui_langgraph import add_langgraph_fastapi_endpoint  # noqa: E402
+from copilotkit import LangGraphAGUIAgent  # noqa: E402
+from fastapi import FastAPI, File, UploadFile  # noqa: E402
+from fastapi.concurrency import run_in_threadpool  # noqa: E402
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver  # noqa: E402
+from psycopg.rows import dict_row  # noqa: E402
+from psycopg_pool import AsyncConnectionPool  # noqa: E402
 
-app = FastAPI()
+from src.graph import compile_graph  # noqa: E402
+from src.ingest import ingest_document  # noqa: E402
+from src.settings import settings  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Durable persistence: AsyncPostgresSaver over a psycopg async pool.
+#
+# Wiring constraints that shape this module:
+#   * add_langgraph_fastapi_endpoint / LangGraphAGUIAgent need the compiled
+#     graph OBJECT at registration time (module scope).
+#   * AsyncPostgresSaver.__init__ calls asyncio.get_running_loop() and pins the
+#     saver to that loop, so it can only be constructed inside a running loop
+#     (i.e. NOT at bare module import, which would raise "no running event
+#     loop" and break a plain `import main`).
+#
+# Resolution: at module scope we compile the graph with a throwaway in-memory
+# checkpointer so the AG-UI agent can register against a stable graph object.
+# Inside the FastAPI lifespan (running on uvicorn's serving loop) we open the
+# pool, build the AsyncPostgresSaver there, run setup(), and rebind it onto the
+# already-registered graph via ``graph.checkpointer = saver``. The AG-UI agent
+# holds a reference to this same graph object, so every request thereafter uses
+# the durable Postgres saver — bound to the correct serving loop.
+# ---------------------------------------------------------------------------
+
+# SQLAlchemy-style dsn (postgresql+psycopg://) -> plain libpq dsn for psycopg.
+_dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+
+# Pool construction needs no event loop (open=False); safe at module scope.
+pool = AsyncConnectionPool(
+    conninfo=_dsn,
+    open=False,
+    kwargs={
+        # Mirror what langgraph's from_conn_string sets internally:
+        "autocommit": True,  # setup() migrations / writes commit immediately
+        "prepare_threshold": 0,  # avoid prepared-statement reuse across the pool
+        "row_factory": dict_row,  # the saver expects dict rows
+    },
+)
+
+# Compiled at import time so the agent can register; the in-memory checkpointer
+# is a placeholder that is replaced with the durable saver in the lifespan.
+graph = compile_graph()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Running inside uvicorn's event loop: open the pool, build + bind the
+    # durable saver (loop-pinned here), and ensure checkpoint tables exist.
+    await pool.open()
+    saver = AsyncPostgresSaver(pool)
+    await saver.setup()  # idempotent: creates checkpoint tables/migrations
+    graph.checkpointer = saver
+    try:
+        yield
+    finally:
+        await pool.close()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/health")
@@ -53,11 +114,12 @@ async def upload(file: UploadFile = File(...)):
     return {"document_id": document_id, "chunks": chunks, "filename": file.filename}
 
 
+# Mount the Socratic tutor graph as an AG-UI agent at the server root.
 add_langgraph_fastapi_endpoint(
     app=app,
     agent=LangGraphAGUIAgent(
-        name="sample_agent",
-        description="An example agent to use as a starting point for your own agent.",
+        name="socratic",
+        description="PDF->interactive lesson tutor",
         graph=graph,
     ),
     path="/",
