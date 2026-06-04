@@ -27,10 +27,12 @@ from fastapi.concurrency import run_in_threadpool  # noqa: E402
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver  # noqa: E402
 from psycopg.rows import dict_row  # noqa: E402
 from psycopg_pool import AsyncConnectionPool  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
 from src.graph import compile_graph  # noqa: E402
 from src.ingest import ingest_document  # noqa: E402
 from src.settings import settings  # noqa: E402
+from src.tutor import tutor_answer  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Durable persistence: AsyncPostgresSaver over a psycopg async pool.
@@ -112,6 +114,23 @@ async def upload(file: UploadFile = File(...)):
     finally:
         path.unlink(missing_ok=True)
     return {"document_id": document_id, "chunks": chunks, "filename": file.filename}
+
+
+class TutorReq(BaseModel):
+    question: str
+    options: list[str]
+    correct_index: int
+    user_message: str
+
+
+@app.post("/tutor")
+async def tutor(req: TutorReq):
+    """Return a Socratic hint for the MCQ the learner is currently working on.
+
+    The reply is guaranteed never to contain the correct option text; the
+    structural guardrail in ``src.tutor`` rewrites any leaking model output.
+    """
+    return {"reply": await tutor_answer(**req.model_dump())}
 
 
 # Mount the Socratic tutor graph as an AG-UI agent at the server root.
