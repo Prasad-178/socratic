@@ -1,0 +1,30 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: socratic
+      POSTGRES_PASSWORD: socratic
+      POSTGRES_DB: socratic
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U socratic"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  agent:
+    build: ./agent
+    env_file: ./agent/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://socratic:socratic@db:5432/socratic
+      PORT: "8123"
+    ports: ["8123:8123"]
+    depends_on:
+      db: { condition: service_healthy }
+  web:
+    build: ./web
+    environment:
+      AGENT_URL: http://agent:8123
+    ports: ["3000:3000"]
+    depends_on: [agent]
+volumes: { pgdata: {} }
