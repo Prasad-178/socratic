@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAgent, useInterrupt } from "@copilotkit/react-core/v2";
+import { useInterrupt } from "@copilotkit/react-core/v2";
 
 import {
   Card,
@@ -26,14 +26,15 @@ export interface Mcq {
   explanation: string;
   hint: string;
   source_pages?: number[];
-}
-
-/** Subset of the agent's shared state we read to compute quiz progress. */
-interface SocraticState {
-  objectives?: { id: string; title: string; difficulty?: string }[];
-  current_objective_idx?: number;
-  current_mcqs?: unknown[];
-  current_mcq_idx?: number;
+  // Progress fields carried on the MCQ interrupt payload (set by the agent).
+  // We prefer THESE for the quiz header — they ship with the interrupt and so
+  // never lag behind shared state the way the old state-derived values did.
+  objective_title?: string;
+  difficulty?: string;
+  topic_number?: number;
+  topic_total?: number;
+  question_number?: number;
+  question_total?: number;
 }
 
 /**
@@ -49,39 +50,31 @@ function readMcqPayload(raw: unknown): Mcq | null {
 }
 
 /**
- * Quiz progress header derived from the agent's shared state.
+ * Quiz progress header derived from the MCQ interrupt PAYLOAD.
  *
- * Shows "Topic N of M · Question N of M" plus the topic title. If any field is
- * briefly unavailable (state still catching up), it degrades to just
- * "Question".
+ * Shows "Topic N of M · Question N of M" plus the topic title and a difficulty
+ * badge. These fields ride along with the interrupt, so (unlike the old
+ * agent-state derivation) they're always in lockstep with the question shown.
+ * If any field is missing it degrades gracefully (e.g. just "Question").
  */
 function QuizProgress({ mcq }: { mcq: Mcq }) {
-  const { agent } = useAgent();
-  const state = (agent.state ?? {}) as SocraticState;
+  const {
+    topic_number: topicN,
+    topic_total: topicTotal,
+    question_number: qN,
+    question_total: qTotal,
+    objective_title: title,
+    difficulty,
+  } = mcq;
 
-  const objectives = state.objectives ?? [];
-  const objIdx = state.current_objective_idx;
-  const mcqs = state.current_mcqs ?? [];
-  const mcqIdx = state.current_mcq_idx;
-
-  const objTotal = objectives.length;
-  const objN = typeof objIdx === "number" ? objIdx + 1 : undefined;
-  const qTotal = mcqs.length;
-  const qN = typeof mcqIdx === "number" ? mcqIdx + 1 : undefined;
-
-  // Objective: prefer matching by id, fall back to index.
-  const objective =
-    objectives.find((o) => o.id === mcq.objective_id) ??
-    (typeof objIdx === "number" ? objectives[objIdx] : undefined);
-  const title = objective?.title;
-  const difficulty = objective?.difficulty;
-
-  const haveObj = objN !== undefined && objTotal > 0;
-  const haveQ = qN !== undefined && qTotal > 0;
+  const haveTopic =
+    typeof topicN === "number" && typeof topicTotal === "number" && topicTotal > 0;
+  const haveQ =
+    typeof qN === "number" && typeof qTotal === "number" && qTotal > 0;
 
   let label: string;
-  if (haveObj && haveQ) {
-    label = `Topic ${objN} of ${objTotal} · Question ${qN} of ${qTotal}`;
+  if (haveTopic && haveQ) {
+    label = `Topic ${topicN} of ${topicTotal} · Question ${qN} of ${qTotal}`;
   } else if (haveQ) {
     label = `Question ${qN} of ${qTotal}`;
   } else {
@@ -196,9 +189,18 @@ export function McqCard({
         >
           {mcq.options.map((option, i) => {
             const optionId = `${mcq.id}-opt-${i}`;
-            const isThisCorrect = submitted && i === mcq.correct_index;
-            const isThisChosenWrong =
-              submitted && i === selectedIndex && i !== mcq.correct_index;
+            // Green appears ONLY on the option the learner actually chose, and
+            // ONLY when that choice is the correct one. We never key the green
+            // off `correct_index` directly — doing so would leak the answer on
+            // a wrong submit. So both states below are anchored on the CHOSEN
+            // option (`i === selectedIndex`):
+            //   • chosen + correct  → green ✓
+            //   • chosen + wrong    → red ✕
+            // Every other (non-chosen) option stays neutral after submit.
+            const isChosenCorrect =
+              submitted && i === selectedIndex && isCorrect;
+            const isChosenWrong =
+              submitted && i === selectedIndex && isWrong;
             return (
               <Label
                 key={optionId}
@@ -208,11 +210,12 @@ export function McqCard({
                   !submitted &&
                     !resolved &&
                     "hover:border-[var(--ring)] hover:bg-[var(--secondary)]",
-                  // Correct option → green (shown after submit)
-                  isThisCorrect &&
+                  // The chosen option, when correct → green
+                  isChosenCorrect &&
                     "border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100",
-                  // The wrong option the learner chose → red
-                  isThisChosenWrong &&
+                  // The chosen option, when wrong → red (correct option is NOT
+                  // revealed — it stays neutral)
+                  isChosenWrong &&
                     "border-red-500 bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100",
                 )}
               >
@@ -222,12 +225,12 @@ export function McqCard({
                   disabled={submitted || resolved}
                 />
                 <span className="flex-1">{option}</span>
-                {isThisCorrect && (
+                {isChosenCorrect && (
                   <span aria-hidden className="font-semibold text-green-600">
                     ✓
                   </span>
                 )}
-                {isThisChosenWrong && (
+                {isChosenWrong && (
                   <span aria-hidden className="font-semibold text-red-600">
                     ✕
                   </span>

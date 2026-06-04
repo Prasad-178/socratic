@@ -12,50 +12,46 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
-/** One graded answer, as recorded by the agent in `state.results`. */
-interface Result {
-  mcq_id: string;
-  objective_id: string;
-  chosen_index: number;
-  correct: boolean;
-  attempts: number;
-}
-
-/** One learning objective as stored in agent state. */
+/** One learning objective as stored in agent state (for id → title mapping). */
 interface Objective {
   id: string;
   title: string;
 }
 
+/** Per-objective aggregate from the structured report. */
+interface ByObjective {
+  attempts: number;
+  correct: number;
+  n: number;
+}
+
 /** Subset of the agent's shared state this component reads (read-only). */
 interface SocraticState {
   phase?: string;
-  results?: Result[];
   objectives?: Objective[];
-  study_tips?: string;
-  summary?: string;
+  // New structured summary state (replaces the old `summary` markdown blob).
+  headline?: string;
+  study_tips?: string[];
   report?: {
     total: number;
     correct: number;
-    by_objective: Record<string, { attempts: number; correct: number; n: number }>;
+    by_objective: Record<string, ByObjective>;
     weak_objectives: string[];
   };
-}
-
-/** Minimal shape we need off an AG-UI message for the final-tips fallback. */
-interface MessageLike {
-  role?: string;
-  content?: string;
 }
 
 /**
  * Final lesson summary. Renders only once the agent reports `phase === "done"`.
  *
- * Score is computed from `state.results`:
- *   - total questions, number correct
- *   - per-objective attempt counts
- * Final study tips are read from `state.study_tips` / `state.summary` if
- * present, otherwise the last assistant message in `agent.messages`.
+ * Reads the agent's STRUCTURED summary state:
+ *   - `headline`   — a warm one-line title.
+ *   - `report`     — { total, correct, by_objective, weak_objectives }.
+ *   - `study_tips` — an array of plain strings (NO markdown), rendered as a
+ *                    clean list rather than a raw markdown blob.
+ *
+ * The per-topic breakdown maps `by_objective`'s objective ids to human titles
+ * via `agent.state.objectives`; if an id can't be mapped, that row is dropped
+ * so we never surface raw UUIDs.
  */
 export function Summary() {
   const { agent } = useAgent();
@@ -63,121 +59,110 @@ export function Summary() {
 
   if (state.phase !== "done") return null;
 
-  // Build a lookup from objective id → human title using agent.state.objectives.
-  // Falls back to the raw id string if the objective isn't found (shouldn't
-  // happen in normal flow, but keeps the component safe against missing data).
-  const objectiveTitle = (id: string): string => {
-    const match = (state.objectives ?? []).find((o) => o.id === id);
-    return match?.title ?? id;
-  };
-
-  // Prefer the persisted report from state (set by summarize_node) so we
-  // don't have to recompute from raw results client-side.
   const report = state.report;
-  const results = state.results ?? [];
-  const total = report?.total ?? results.length;
-  const correct = report?.correct ?? results.filter((r) => r.correct).length;
-
-  // Per-objective breakdown: use state.report.by_objective when available,
-  // otherwise fall back to computing from state.results.
-  const perObjective = new Map<
-    string,
-    { attempts: number; correct: number; total: number }
-  >();
-  if (report?.by_objective) {
-    for (const [id, agg] of Object.entries(report.by_objective)) {
-      perObjective.set(id, { attempts: agg.attempts, correct: agg.correct, total: agg.n });
-    }
-  } else {
-    for (const r of results) {
-      const entry = perObjective.get(r.objective_id) ?? {
-        attempts: 0,
-        correct: 0,
-        total: 0,
-      };
-      entry.attempts += r.attempts;
-      entry.correct += r.correct ? 1 : 0;
-      entry.total += 1;
-      perObjective.set(r.objective_id, entry);
-    }
-  }
-
-  // Final study tips: prefer state.summary (plain text set by summarize_node),
-  // then legacy study_tips field, then fall back to last assistant message.
-  const messages = (agent.messages ?? []) as MessageLike[];
-  const lastAssistant = [...messages]
-    .reverse()
-    .find((m) => m.role === "assistant" && !!m.content);
-  const studyTips =
-    state.summary ?? state.study_tips ?? lastAssistant?.content ?? null;
-
+  const total = report?.total ?? 0;
+  const correct = report?.correct ?? 0;
   const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+  const headline = state.headline?.trim();
+  const tips = (state.study_tips ?? []).filter((t) => !!t && t.trim().length > 0);
+
+  // Map objective id → title. We only show a per-topic row when we can resolve
+  // a real title, so raw UUIDs never leak into the UI.
+  const titleById = new Map(
+    (state.objectives ?? []).map((o) => [o.id, o.title]),
+  );
+  const perTopic = Object.entries(report?.by_objective ?? {})
+    .map(([id, agg]) => ({ title: titleById.get(id), agg }))
+    .filter((row): row is { title: string; agg: ByObjective } => !!row.title);
 
   return (
     <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="font-[family-name:var(--font-display)] text-2xl font-medium">
-          Lesson complete 🎉
+      <CardHeader className="gap-2">
+        <span
+          aria-hidden
+          className="text-2xl"
+        >
+          🎉
+        </span>
+        <CardTitle className="font-[family-name:var(--font-display)] text-2xl font-medium leading-snug">
+          {headline || "Lesson complete"}
         </CardTitle>
-        <CardDescription>
-          {total > 0
-            ? `Nice work — you got ${correct} of ${total} right.`
-            : "You've reached the end of this lesson."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
         {total > 0 && (
-          <div className="flex items-baseline gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)] px-5 py-4">
-            <span className="font-[family-name:var(--font-display)] text-4xl font-semibold tabular-nums">
+          <CardDescription>
+            You answered {correct} of {total} questions correctly.
+          </CardDescription>
+        )}
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-6">
+        {/* ── Score ──────────────────────────────────────────────────────── */}
+        {total > 0 && (
+          <div className="flex items-center justify-between gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)] px-5 py-4">
+            <div className="flex items-baseline gap-2">
+              <span className="font-[family-name:var(--font-display)] text-4xl font-semibold tabular-nums">
+                {correct}
+              </span>
+              <span className="text-xl text-[var(--muted-foreground)]">
+                / {total}
+              </span>
+            </div>
+            <Badge variant="secondary" className="text-sm tabular-nums">
               {pct}%
-            </span>
-            <span className="text-sm text-[var(--muted-foreground)]">
-              {correct} of {total} correct
-            </span>
+            </Badge>
           </div>
         )}
 
-        {perObjective.size > 0 && (
+        {/* ── Per-topic breakdown (only when titles resolve) ─────────────── */}
+        {perTopic.length > 0 && (
+          <div className="flex flex-col gap-2.5">
+            <p className="text-sm font-medium text-[var(--foreground)]">
+              How you did, by topic
+            </p>
+            <ul className="flex flex-col gap-2">
+              {perTopic.map(({ title, agg }) => (
+                <li
+                  key={title}
+                  className="flex items-center justify-between gap-3 text-sm"
+                >
+                  <span className="truncate text-[var(--foreground)]">
+                    {title}
+                  </span>
+                  <Badge variant="outline" className="shrink-0 tabular-nums">
+                    {agg.correct}/{agg.n} correct
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ── Study tips (plain strings → tidy list, no markdown) ─────────── */}
+        {tips.length > 0 && (
           <>
             <Separator />
-            <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-3">
               <p className="text-sm font-medium text-[var(--foreground)]">
-                How you did, by topic
+                What to study next
               </p>
-              <ul className="flex flex-col gap-2">
-                {[...perObjective.entries()].map(([objectiveId, agg]) => (
+              <ul className="flex flex-col gap-3">
+                {tips.map((tip, i) => (
                   <li
-                    key={objectiveId}
-                    className="flex items-center justify-between gap-2 text-sm"
+                    key={i}
+                    className="flex items-start gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)] px-4 py-3"
                   >
-                    <span className="truncate text-[var(--foreground)]">
-                      {objectiveTitle(objectiveId)}
+                    <span
+                      aria-hidden
+                      className="mt-0.5 shrink-0 text-base leading-none text-[var(--primary)]"
+                    >
+                      💡
                     </span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <Badge variant="outline">
-                        {agg.correct}/{agg.total} correct
-                      </Badge>
-                      <Badge variant="secondary">
-                        {agg.attempts} attempt{agg.attempts === 1 ? "" : "s"}
-                      </Badge>
+                    <span className="text-sm leading-relaxed text-[var(--foreground)]">
+                      {tip}
                     </span>
                   </li>
                 ))}
               </ul>
-            </div>
-          </>
-        )}
-
-        {studyTips && (
-          <>
-            <Separator />
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium text-[var(--foreground)]">
-                What to study next
-              </p>
-              <p className="whitespace-pre-wrap text-sm text-[var(--muted-foreground)]">
-                {studyTips}
-              </p>
             </div>
           </>
         )}

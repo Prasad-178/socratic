@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * "Lesson settings" — a small header button that opens an accessible modal with
  * two friendly, non-technical controls:
  *   • Questions per topic   (1–5, default 2)  → questions_per_objective
- *   • Number of topics       (3–8, default 6)  → max_objectives
+ *   • Number of topics       (1–8, default 6)  → max_objectives
  *
  * Values live in the LessonSettings context and are read by the Uploader at
  * kickoff, so they apply to the NEXT lesson. Changing them mid-lesson does not
@@ -113,7 +113,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           label="Number of topics"
           helper="How many topics to break your document into."
           value={maxObjectives}
-          min={3}
+          min={1}
           max={8}
           onChange={setMaxObjectives}
         />

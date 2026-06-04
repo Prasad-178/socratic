@@ -50,6 +50,16 @@ export default function HomePage() {
   let step: Step = "upload";
   let activeStep: React.ReactNode = null;
 
+  // Phase buckets. `preparing_quiz`/`quizzing` mean the agent has approved the
+  // plan and is generating ALL questions up front — there's a few-second gap
+  // before the first MCQ interrupt arrives. Everything earlier (undefined,
+  // `planning`, `awaiting_approval`) is the plan-building window.
+  const isPreparing = phase === "preparing_quiz" || phase === "quizzing";
+  // Planning window: the explicit planning phases, OR the brief kickoff gap
+  // before the agent has reported any phase at all (phase undefined + running).
+  const isPlanning =
+    phase === "planning" || phase === "awaiting_approval" || phase === undefined;
+
   if (planElement) {
     step = "plan";
     activeStep = planElement;
@@ -59,10 +69,15 @@ export default function HomePage() {
   } else if (phase === "done") {
     step = "summary";
     activeStep = <Summary />;
-  } else if (isRunning || (phase && phase !== "done")) {
-    // Agent running with no interrupt yet → planning the lesson.
+  } else if (isRunning && isPlanning) {
+    // Agent running with no interrupt yet, in the planning window → planning.
     step = "plan";
     activeStep = <PlanningStatus />;
+  } else if (isPreparing) {
+    // Plan approved; ALL questions are being generated, but no MCQ interrupt is
+    // active yet. Show a calm, distinct "preparing questions" state.
+    step = "quiz";
+    activeStep = <PreparingQuestionsStatus />;
   }
 
   return (
@@ -115,6 +130,26 @@ function PlanningStatus() {
         <p className="max-w-sm text-sm text-[var(--muted-foreground)]">
           Reading your document and choosing the topics to cover. This takes a
           moment.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Calm "Preparing your questions…" state shown after the plan is approved,
+ *  while the agent generates ALL questions up front (a few seconds) before the
+ *  first MCQ interrupt arrives. Distinct copy from the planning state. */
+function PreparingQuestionsStatus() {
+  return (
+    <div className="flex flex-col items-center gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-6 py-16 text-center">
+      <Spinner size="lg" />
+      <div className="flex flex-col gap-1">
+        <p className="font-[family-name:var(--font-display)] text-lg font-medium">
+          Preparing your questions…
+        </p>
+        <p className="max-w-sm text-sm text-[var(--muted-foreground)]">
+          Writing grounded questions for each topic. Your first one is on its
+          way.
         </p>
       </div>
     </div>
