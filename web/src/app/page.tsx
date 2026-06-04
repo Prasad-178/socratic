@@ -9,6 +9,7 @@ import { Summary } from "@/components/Summary";
 import { Stepper, type Step } from "@/components/Stepper";
 import { LessonSettings } from "@/components/LessonSettings";
 import { LessonSettingsProvider } from "@/hooks/use-lesson-settings";
+import { DocumentProvider } from "@/hooks/use-document";
 import { Spinner } from "@/components/ui/spinner";
 
 /** Subset of the agent's shared state the active-step machine reads. */
@@ -92,6 +93,7 @@ export default function HomePage() {
 
   return (
     <LessonSettingsProvider>
+      <DocumentProvider>
       <div className="min-h-full overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-5 py-10 sm:py-14">
           {/* ── Masthead ────────────────────────────────────────────────── */}
@@ -123,6 +125,7 @@ export default function HomePage() {
           )}
         </div>
       </div>
+      </DocumentProvider>
     </LessonSettingsProvider>
   );
 }

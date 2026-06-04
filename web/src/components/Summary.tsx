@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 /** One learning objective as stored in agent state (for id → title mapping). */
@@ -166,6 +167,23 @@ export function Summary() {
             </div>
           </>
         )}
+
+        {/* ── Start over ─────────────────────────────────────────────────────
+            The agent's run is finished (`phase === "done"`) with the previous
+            plan/objectives still in its state, so an in-place re-upload would
+            skip planning (route_entry sees an existing plan). A full reload is
+            the cleanest reliable reset: fresh upload screen + fresh agent
+            thread. */}
+        <Separator />
+        <div className="flex justify-center pt-1">
+          <Button
+            type="button"
+            size="lg"
+            onClick={() => window.location.reload()}
+          >
+            Start a new lesson
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

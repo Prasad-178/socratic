@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useLessonSettings } from "@/hooks/use-lesson-settings";
+import { useDocument } from "@/hooks/use-document";
+import { PdfViewerModal } from "@/components/PdfViewerModal";
 
 interface UploadResult {
   document_id: string;
@@ -48,9 +50,14 @@ export function Uploader() {
   // snake_cased into the kickoff state so the agent reads them at run start.
   const { questionsPerObjective, maxObjectives } = useLessonSettings();
 
+  // Shared client-side handle on the uploaded PDF so the collapsed file strip
+  // (and the viewer modal it opens) can render the original document.
+  const { fileUrl, fileName, setDocument } = useDocument();
+
   const [status, setStatus] = useState<Status>("idle");
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Expose the uploaded document as readable context for the agent (one-way).
@@ -64,6 +71,10 @@ export function Uploader() {
       setStatus("uploading");
       setError(null);
       setResult(null);
+
+      // Publish the file for client-side viewing (mints an object URL, revoking
+      // any previous one). Independent of the agent upload below.
+      setDocument(file);
 
       try {
         const formData = new FormData();
@@ -100,7 +111,7 @@ export function Uploader() {
         setStatus("error");
       }
     },
-    [agent, maxObjectives, questionsPerObjective],
+    [agent, maxObjectives, questionsPerObjective, setDocument],
   );
 
   const onInputChange = useCallback(
@@ -140,15 +151,30 @@ export function Uploader() {
   // lesson surface below takes focus. "Change" re-opens the picker (a new
   // upload re-kicks the agent via handleFile).
   if (status === "ready" && result) {
+    // The filename is a button that opens the PDF viewer modal — but only when
+    // we actually have an object URL to show. If not, fall back to plain text.
+    const canView = !!fileUrl;
+    const displayName = fileName ?? result.filename;
     return (
       <div className="flex items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-3.5 py-2.5 text-sm">
         {fileInput}
         <span aria-hidden className="text-base">
           📄
         </span>
-        <span className="truncate font-medium text-[var(--foreground)]">
-          {result.filename}
-        </span>
+        {canView ? (
+          <button
+            type="button"
+            onClick={() => setViewerOpen(true)}
+            title="View PDF"
+            className="min-w-0 cursor-pointer truncate rounded-sm font-medium text-[var(--foreground)] underline-offset-4 transition-colors hover:text-[var(--primary)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          >
+            {displayName}
+          </button>
+        ) : (
+          <span className="truncate font-medium text-[var(--foreground)]">
+            {displayName}
+          </span>
+        )}
         <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
           Ready
         </span>
@@ -161,6 +187,13 @@ export function Uploader() {
         >
           Change
         </Button>
+        {viewerOpen && canView && (
+          <PdfViewerModal
+            fileUrl={fileUrl}
+            fileName={displayName}
+            onClose={() => setViewerOpen(false)}
+          />
+        )}
       </div>
     );
   }
