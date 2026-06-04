@@ -60,6 +60,14 @@ class MCQResult(BaseModel):
 class SocraticState(TypedDict, total=False):
     """Top-level graph state.
 
+    The model-typed payloads (``plan``, ``objectives``, ``current_mcqs``,
+    ``results``) are stored as JSON-native **dicts** rather than Pydantic
+    instances. Storing dicts keeps the LangGraph msgpack checkpoint clean (no
+    "unregistered type" warnings on a durable Postgres round-trip) and keeps the
+    state JSON-serialisable for the AG-UI wire format. Nodes that need typed
+    access re-validate with the matching model (e.g. ``Objective(**d)``) at the
+    boundary; ``generate_structured`` still returns Pydantic models for I/O.
+
     ``results`` accumulates across the quiz loop (operator.add reducer) and
     ``messages`` uses the standard LangGraph message reducer so summary
     messages append rather than overwrite.
@@ -67,12 +75,12 @@ class SocraticState(TypedDict, total=False):
 
     document_id: str
     chunk_texts: list[str]
-    plan: Plan | None
-    objectives: list[Objective]
+    plan: dict | None
+    objectives: list[dict]
     current_objective_idx: int
-    current_mcqs: list[MCQ]
+    current_mcqs: list[dict]
     current_mcq_idx: int
-    results: Annotated[list[MCQResult], operator.add]
+    results: Annotated[list[dict], operator.add]
     messages: Annotated[list[AnyMessage], add_messages]
     phase: str
     plan_status: str

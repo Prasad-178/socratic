@@ -86,7 +86,8 @@ async def test_plan_approval_resume_applies_edits_and_advances(monkeypatch):
     # State after approval reflects the edit and is in the quiz phase.
     state = graph.get_state(cfg).values
     assert state["plan_status"] == "approved"
-    assert state["objectives"][0].title == "A2"
+    # objectives are stored as JSON-native dicts (msgpack-clean for durable HITL)
+    assert state["objectives"][0]["title"] == "A2"
 
     # It advanced into the quiz: the next interrupt is an MCQ.
     assert r.get("__interrupt__"), "expected to advance to the MCQ interrupt"

@@ -7,8 +7,11 @@ from src.llm import get_chat_model
 from src.state import MCQResult, SocraticState
 
 
-def compute_report(results: list[MCQResult]) -> dict:
+def compute_report(results: list[MCQResult | dict]) -> dict:
     """Aggregate quiz results into a score report (PURE — no I/O).
+
+    Accepts either ``MCQResult`` instances or their dumped dicts (state stores
+    dicts; unit tests pass models). Dicts are validated through ``MCQResult``.
 
     Returns:
         ``total``           — number of MCQs answered.
@@ -18,6 +21,7 @@ def compute_report(results: list[MCQResult]) -> dict:
                               attempts than questions), ordered most-retried
                               first.
     """
+    results = [r if isinstance(r, MCQResult) else MCQResult(**r) for r in results]
     by_obj: dict[str, dict[str, int]] = defaultdict(
         lambda: {"attempts": 0, "correct": 0, "n": 0}
     )
@@ -54,5 +58,4 @@ async def summarize_node(state: SocraticState) -> dict:
     return {
         "phase": "done",
         "messages": [tips],
-        "plan": state.get("plan"),
     }

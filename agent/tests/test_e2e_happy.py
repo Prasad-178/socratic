@@ -117,7 +117,8 @@ async def test_e2e_happy_path(monkeypatch):
     final = graph.get_state(cfg).values
     assert final["phase"] == "done"
     assert len(final["results"]) == guard
-    assert all(res.correct for res in final["results"])
+    # results are stored as JSON-native dicts (msgpack-clean for durable HITL)
+    assert all(res["correct"] for res in final["results"])
     # A study-tips message was appended.
     assert any(
         getattr(m, "content", "").startswith("Tip 1") for m in final.get("messages", [])

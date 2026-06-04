@@ -27,12 +27,18 @@ _DIFFICULTY_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
 
 
 class _PlanState(TypedDict, total=False):
-    """Internal state for the planning subgraph."""
+    """Internal state for the planning subgraph.
+
+    ``plan`` is stored as a plain dict (``Plan.model_dump()``) so the value that
+    flows back into ``SocraticState`` stays JSON-native and the durable msgpack
+    checkpoint carries no unregistered Pydantic types. ``candidates`` holds
+    ``Objective`` instances only transiently while the map-reduce runs.
+    """
 
     document_id: str
     chunk_texts: list[str]
     candidates: Annotated[list[Objective], operator.add]
-    plan: Plan
+    plan: dict
 
 
 class _ChunkObjectives(BaseModel):
@@ -112,8 +118,8 @@ def reduce_objectives(candidates: list[Objective]) -> Plan:
 
 
 def reduce_node(state: _PlanState) -> dict:
-    """Reduce accumulated candidates into a single Plan."""
-    return {"plan": reduce_objectives(state.get("candidates", []))}
+    """Reduce accumulated candidates into a single Plan (stored as a dict)."""
+    return {"plan": reduce_objectives(state.get("candidates", [])).model_dump()}
 
 
 # ---------------------------------------------------------------------------

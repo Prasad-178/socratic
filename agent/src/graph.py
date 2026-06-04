@@ -57,8 +57,8 @@ def route_entry(state: SocraticState) -> str:
 # HITL: plan approval (interrupt-based, thin + idempotent)
 # ---------------------------------------------------------------------------
 
-def _plan_objectives(state: SocraticState) -> list:
-    """Objectives to present for approval, as plain dicts."""
+def _plan_objectives(state: SocraticState) -> list[dict]:
+    """Objectives to present for approval, as plain JSON-native dicts."""
     plan = state.get("plan")
     if isinstance(plan, Plan):
         return [o.model_dump() for o in plan.objectives]
@@ -74,13 +74,18 @@ def approve_plan_node(state: SocraticState) -> Command:
     interrupt payload: {"type": "plan_approval", "plan": <objectives>}
     resume value:      {"action": "approve"|"regenerate",
                         "plan": <edited objectives>, "feedback": <str>}
+
+    Objectives are stored in state as dicts; we validate each through
+    ``Objective`` (so an edited payload is normalised + schema-checked) and
+    write the dumped dicts back.
     """
     decision = interrupt({"type": "plan_approval", "plan": _plan_objectives(state)})
 
     if decision["action"] == "approve":
         edited = decision.get("plan") or _plan_objectives(state)
         objectives = [
-            o if isinstance(o, Objective) else Objective(**o) for o in edited
+            (o if isinstance(o, Objective) else Objective(**o)).model_dump()
+            for o in edited
         ]
         return Command(
             goto="select_objective",
@@ -130,14 +135,27 @@ async def plan_node(state: SocraticState) -> Command:
 # ---------------------------------------------------------------------------
 
 def build_graph() -> StateGraph:
-    """Construct (but do not compile) the full Socratic agent graph."""
+    """Construct (but do not compile) the full Socratic agent graph.
+
+    Nodes that route via ``Command(goto=...)`` declare their possible
+    destinations so the static graph is complete (correct rendering /
+    validation under ``langgraph dev``).
+    """
     g = StateGraph(SocraticState)
 
-    g.add_node("plan", plan_node)
-    g.add_node("approve_plan", approve_plan_node)
-    g.add_node("select_objective", select_objective_node)
+    g.add_node("plan", plan_node, destinations=("approve_plan",))
+    g.add_node(
+        "approve_plan",
+        approve_plan_node,
+        destinations=("select_objective", "plan"),
+    )
+    g.add_node(
+        "select_objective",
+        select_objective_node,
+        destinations=("generate_mcqs", "summarize"),
+    )
     g.add_node("generate_mcqs", generate_mcqs_node)
-    g.add_node("ask_mcq", ask_mcq_node)
+    g.add_node("ask_mcq", ask_mcq_node, destinations=("ask_mcq", "select_objective"))
     g.add_node("summarize", summarize_node)
 
     g.add_conditional_edges(START, route_entry, ["plan", "approve_plan"])

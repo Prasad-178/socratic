@@ -12,6 +12,7 @@ Resume value:        {"chosen_index": int, "correct": bool, "attempts": int}
 """
 from __future__ import annotations
 
+import logging
 import uuid
 
 from langchain_core.documents import Document
@@ -21,6 +22,8 @@ from pydantic import BaseModel
 from src.llm import generate_structured
 from src.retrieval import retrieve
 from src.state import MCQ, MCQResult, Objective, SocraticState
+
+log = logging.getLogger(__name__)
 
 
 class _GenMCQ(BaseModel):
@@ -74,8 +77,16 @@ async def build_mcqs_from_chunks(
         g.source_pages = constrained or pages
 
         # Enforce exactly 4 options. Pad with distractors if the model
-        # under-produced (defensive — generation is asked for 4).
+        # under-produced (defensive — generation is asked for 4). Padding is a
+        # generation-quality regression, so make it visible in the logs.
         opts = list(g.options[:4])
+        if len(opts) < 4:
+            log.warning(
+                "MCQ for objective %r under-produced options (%d < 4); "
+                "padding with placeholders — review generation quality.",
+                obj.title,
+                len(opts),
+            )
         while len(opts) < 4:
             opts.append(f"Option {len(opts) + 1}")
         g.options = opts
@@ -101,14 +112,18 @@ def select_objective_node(state: SocraticState) -> Command:
 
 
 async def generate_mcqs_node(state: SocraticState) -> dict:
-    """Retrieve grounded context for the current objective and build its MCQs."""
-    obj = state["objectives"][state["current_objective_idx"]]
+    """Retrieve grounded context for the current objective and build its MCQs.
+
+    ``objectives`` are stored as dicts; re-validate the current one through
+    ``Objective`` for typed access, and store the generated MCQs as dicts.
+    """
+    obj = Objective(**state["objectives"][state["current_objective_idx"]])
     chunks = retrieve(
         f"{obj.title}. {' '.join(obj.key_points)}",
         document_id=state["document_id"],
     )
     mcqs = await build_mcqs_from_chunks(obj, chunks, n=2)
-    return {"current_mcqs": mcqs, "current_mcq_idx": 0}
+    return {"current_mcqs": [m.model_dump() for m in mcqs], "current_mcq_idx": 0}
 
 
 def ask_mcq_node(state: SocraticState) -> Command:
@@ -123,17 +138,17 @@ def ask_mcq_node(state: SocraticState) -> Command:
     """
     mcqs = state.get("current_mcqs", [])
     idx = state.get("current_mcq_idx", 0)
-    mcq = mcqs[idx]
+    mcq = mcqs[idx]  # already a JSON-native dict in state
 
-    result = interrupt({"type": "mcq", "mcq": mcq.model_dump()})
+    result = interrupt({"type": "mcq", "mcq": mcq})
 
     rec = MCQResult(
-        mcq_id=mcq.id,
-        objective_id=mcq.objective_id,
+        mcq_id=mcq["id"],
+        objective_id=mcq["objective_id"],
         chosen_index=result["chosen_index"],
         correct=result["correct"],
         attempts=result["attempts"],
-    )
+    ).model_dump()
 
     next_idx = idx + 1
     if next_idx < len(mcqs):

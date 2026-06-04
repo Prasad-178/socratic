@@ -13,7 +13,6 @@ import pytest
 from pydantic import BaseModel, ValidationError
 from langchain_core.runnables import RunnableLambda
 from langchain_core.language_models import BaseChatModel
-from typing import Any
 
 from src.llm import generate_structured
 
