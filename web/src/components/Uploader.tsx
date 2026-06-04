@@ -80,6 +80,10 @@ export function Uploader() {
         // Kick off the agent: seed shared state with document_id and run.
         // The graph plans over the document and then emits a plan_approval
         // interrupt (resolved by the 5B PlanApproval widget via useInterrupt).
+        // NOTE: agent.setState({ document_id }) is the load-bearing call that
+        // seeds the LangGraph graph state (read by plan_node / route_entry).
+        // useAgentContext above is supplementary LLM-visible context only —
+        // do NOT remove setState thinking it's redundant.
         agent.setState({ document_id: data.document_id });
         agent.runAgent();
       } catch (err) {

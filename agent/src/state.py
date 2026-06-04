@@ -85,3 +85,7 @@ class SocraticState(TypedDict, total=False):
     phase: str
     plan_status: str
     feedback: str | None
+    # Persisted after summarize_node so Summary.tsx reads structured data
+    # rather than reconstructing from raw messages or falling back to UUIDs.
+    summary: str  # plain-text study tips (coerced from the LLM AIMessage)
+    report: dict  # output of compute_report: total/correct/by_objective/weak_objectives

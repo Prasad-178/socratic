@@ -9,12 +9,17 @@ interface SocraticState {
   phase?: string;
 }
 
+// Keys match the exact phase strings written by the agent:
+//   "awaiting_approval" — plan_node (graph.py) after map-reduce planning
+//   "quizzing"          — approve_plan_node / select_objective_node (quiz.py)
+//   "summarizing"       — select_objective_node when objectives exhausted (quiz.py)
+//   "done"              — summarize_node; Progress hides itself at this phase
+// Before any phase is set, isRunning → "Planning your lesson…" (see label below).
 const PHASE_LABEL: Record<string, string> = {
-  planning: "Planning your lesson…",
-  plan_approval: "Waiting for plan approval…",
-  generating: "Generating questions…",
-  quiz: "Quiz in progress",
-  done: "Lesson complete",
+  awaiting_approval: "Review your lesson plan",
+  quizzing: "Quiz in progress",
+  summarizing: "Wrapping up…",
+  // "done" is intentionally absent — Progress returns null for phase === "done".
 };
 
 /**
@@ -35,7 +40,7 @@ export function Progress() {
 
   const label =
     (phase && PHASE_LABEL[phase]) ??
-    (isRunning ? "Working…" : "Ready");
+    (isRunning ? "Planning your lesson…" : "Ready");
 
   return (
     <div className="flex items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--muted-foreground)]">

@@ -1,4 +1,8 @@
-"""Unit tests for the summarize report (PURE)."""
+"""Unit tests for the summarize report (PURE) and summarize_node output shape."""
+import pytest
+from langchain_core.messages import AIMessage
+
+import src.nodes.summarize as summarize_mod
 from src.nodes.summarize import compute_report
 from src.state import MCQResult
 
@@ -36,3 +40,40 @@ def test_compute_report_counts_incorrect():
     assert report["total"] == 2
     assert report["correct"] == 1
     assert report["by_objective"]["o1"] == {"attempts": 2, "correct": 1, "n": 2}
+
+
+# ---------------------------------------------------------------------------
+# summarize_node output shape
+# ---------------------------------------------------------------------------
+
+class _FakeChat:
+    async def ainvoke(self, _prompt):
+        return AIMessage(content="Tip A. Tip B. Tip C.")
+
+
+@pytest.mark.asyncio
+async def test_summarize_node_persists_summary_and_report(monkeypatch):
+    """summarize_node must return summary (str) and report (dict) alongside messages."""
+    monkeypatch.setattr(summarize_mod, "get_chat_model", lambda **kw: _FakeChat())
+
+    from src.nodes.summarize import summarize_node
+
+    state = {
+        "results": [
+            {"mcq_id": "1", "objective_id": "o1", "chosen_index": 0, "correct": True, "attempts": 1},
+        ]
+    }
+    out = await summarize_node(state)
+
+    assert out["phase"] == "done"
+    # summary must be a plain string (JSON-serialisable)
+    assert isinstance(out["summary"], str)
+    assert "Tip A" in out["summary"]
+    # report must contain the expected keys
+    assert isinstance(out["report"], dict)
+    assert out["report"]["total"] == 1
+    assert out["report"]["correct"] == 1
+    assert "by_objective" in out["report"]
+    assert "weak_objectives" in out["report"]
+    # messages list must still contain the AIMessage (for the add_messages reducer)
+    assert len(out["messages"]) == 1

@@ -47,7 +47,12 @@ def compute_report(results: list[MCQResult | dict]) -> dict:
 
 
 async def summarize_node(state: SocraticState) -> dict:
-    """Produce a final report and LLM-generated study tips."""
+    """Produce a final report and LLM-generated study tips.
+
+    Persists both the plain-text tips (``summary``) and the structured score
+    breakdown (``report``) so Summary.tsx can render them without parsing
+    raw messages or falling back to objective UUIDs.
+    """
     report = compute_report(state.get("results", []))
     tips = await get_chat_model().ainvoke(
         "Give 3 concise, personalized study tips for a learner who scored "
@@ -55,7 +60,12 @@ async def summarize_node(state: SocraticState) -> dict:
         f"they struggled with most (needed retries): {report['weak_objectives']}. "
         "Keep it warm and actionable."
     )
+    # Coerce the LLM response (AIMessage or plain str) to a plain string so
+    # state stays JSON-serialisable for the AG-UI wire format.
+    tips_text: str = tips.content if hasattr(tips, "content") else str(tips)
     return {
         "phase": "done",
         "messages": [tips],
+        "summary": tips_text,
+        "report": report,
     }

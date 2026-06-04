@@ -21,12 +21,25 @@ interface Result {
   attempts: number;
 }
 
+/** One learning objective as stored in agent state. */
+interface Objective {
+  id: string;
+  title: string;
+}
+
 /** Subset of the agent's shared state this component reads (read-only). */
 interface SocraticState {
   phase?: string;
   results?: Result[];
+  objectives?: Objective[];
   study_tips?: string;
   summary?: string;
+  report?: {
+    total: number;
+    correct: number;
+    by_objective: Record<string, { attempts: number; correct: number; n: number }>;
+    weak_objectives: string[];
+  };
 }
 
 /** Minimal shape we need off an AG-UI message for the final-tips fallback. */
@@ -50,34 +63,53 @@ export function Summary() {
 
   if (state.phase !== "done") return null;
 
-  const results = state.results ?? [];
-  const total = results.length;
-  const correct = results.filter((r) => r.correct).length;
+  // Build a lookup from objective id → human title using agent.state.objectives.
+  // Falls back to the raw id string if the objective isn't found (shouldn't
+  // happen in normal flow, but keeps the component safe against missing data).
+  const objectiveTitle = (id: string): string => {
+    const match = (state.objectives ?? []).find((o) => o.id === id);
+    return match?.title ?? id;
+  };
 
-  // Per-objective attempt totals (sum of attempts across that objective's qs).
+  // Prefer the persisted report from state (set by summarize_node) so we
+  // don't have to recompute from raw results client-side.
+  const report = state.report;
+  const results = state.results ?? [];
+  const total = report?.total ?? results.length;
+  const correct = report?.correct ?? results.filter((r) => r.correct).length;
+
+  // Per-objective breakdown: use state.report.by_objective when available,
+  // otherwise fall back to computing from state.results.
   const perObjective = new Map<
     string,
     { attempts: number; correct: number; total: number }
   >();
-  for (const r of results) {
-    const entry = perObjective.get(r.objective_id) ?? {
-      attempts: 0,
-      correct: 0,
-      total: 0,
-    };
-    entry.attempts += r.attempts;
-    entry.correct += r.correct ? 1 : 0;
-    entry.total += 1;
-    perObjective.set(r.objective_id, entry);
+  if (report?.by_objective) {
+    for (const [id, agg] of Object.entries(report.by_objective)) {
+      perObjective.set(id, { attempts: agg.attempts, correct: agg.correct, total: agg.n });
+    }
+  } else {
+    for (const r of results) {
+      const entry = perObjective.get(r.objective_id) ?? {
+        attempts: 0,
+        correct: 0,
+        total: 0,
+      };
+      entry.attempts += r.attempts;
+      entry.correct += r.correct ? 1 : 0;
+      entry.total += 1;
+      perObjective.set(r.objective_id, entry);
+    }
   }
 
-  // Final study tips: prefer explicit state fields, else last assistant msg.
+  // Final study tips: prefer state.summary (plain text set by summarize_node),
+  // then legacy study_tips field, then fall back to last assistant message.
   const messages = (agent.messages ?? []) as MessageLike[];
   const lastAssistant = [...messages]
     .reverse()
     .find((m) => m.role === "assistant" && !!m.content);
   const studyTips =
-    state.study_tips ?? state.summary ?? lastAssistant?.content ?? null;
+    state.summary ?? state.study_tips ?? lastAssistant?.content ?? null;
 
   return (
     <Card className="my-4 w-full">
@@ -115,7 +147,7 @@ export function Summary() {
                     className="flex items-center justify-between gap-2 text-sm"
                   >
                     <span className="truncate text-[var(--muted-foreground)]">
-                      {objectiveId}
+                      {objectiveTitle(objectiveId)}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
                       <Badge variant="outline">
