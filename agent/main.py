@@ -121,6 +121,9 @@ class TutorReq(BaseModel):
     options: list[str]
     correct_index: int
     user_message: str
+    # Prior conversation so the tutor builds on it instead of repeating itself.
+    # Each turn: {"role": "you"|"tutor", "content": str}.
+    history: list[dict] = []
 
 
 @app.post("/tutor")

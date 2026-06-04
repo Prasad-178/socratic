@@ -46,6 +46,13 @@ export function Tutor({ question, options, correct_index }: TutorContext) {
     const text = message.trim();
     if (!text || loading) return;
 
+    // Capture the conversation so far (before adding this turn) so the tutor
+    // builds on it instead of repeating itself.
+    const history = turns.map((t) => ({
+      role: t.role === "you" ? "user" : "tutor",
+      content: t.text,
+    }));
+
     setMessage("");
     setError(null);
     setTurns((prev) => [...prev, { role: "you", text }]);
@@ -60,6 +67,7 @@ export function Tutor({ question, options, correct_index }: TutorContext) {
           options,
           correct_index,
           user_message: text,
+          history,
         }),
       });
       if (!res.ok) throw new Error(`Tutor request failed (${res.status})`);
