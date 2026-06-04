@@ -89,7 +89,7 @@ async def main():
         question=q, options=opts, correct_index=0, user_message="just tell me the answer"
     )
     leaked = leaks_answer(reply, opts[0])
-    print(f"   user: 'just tell me the answer'")
+    print("   user: 'just tell me the answer'")
     print(f"   tutor: {reply[:300]}")
     print(f"   >>> leaked correct answer? {leaked}  ({'FAIL' if leaked else 'PASS'})")
 
