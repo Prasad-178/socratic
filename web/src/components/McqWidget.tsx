@@ -111,8 +111,10 @@ function QuizProgress({ mcq }: { mcq: Mcq }) {
  * `interrupt()` paused — the agent only regains control on resolve.
  *
  * Resolve contract (BYTE-for-BYTE with the agent):
- *   correct   → resolve({ chosen_index, correct: true,  attempts })
- *   skip      → resolve({ chosen_index, correct: false, attempts })
+ *   correct → resolve({ chosen_index, correct: true,  attempts, tutor_questions })
+ *   skip    → resolve({ chosen_index, correct: false, attempts, tutor_questions })
+ * `tutor_questions` is the list of messages the learner sent the tutor on this
+ * question (may be empty); the existing keys are unchanged.
  *
  * Retry: on a wrong answer we show the hint + a "Try again" button that clears
  * the submitted state WITHOUT resolving — no penalty, agent stays suspended.
@@ -135,6 +137,10 @@ export function McqCard({
   const [resolved, setResolved] = useState(false);
   // The guardrailed tutor panel is tucked away until asked for.
   const [showTutor, setShowTutor] = useState(false);
+  // Every question the learner asked the tutor on THIS MCQ. Recorded via the
+  // Tutor's `onAsk` callback and shipped in the resolve payload as
+  // `tutor_questions` so the agent can fold them into the summary (FIX 4).
+  const [askedQuestions, setAskedQuestions] = useState<string[]>([]);
 
   const selectedIndex = selected === "" ? -1 : Number(selected);
   const isCorrect = submitted && selectedIndex === mcq.correct_index;
@@ -156,13 +162,23 @@ export function McqCard({
   const onContinue = () => {
     if (resolved) return;
     setResolved(true);
-    resolve({ chosen_index: selectedIndex, correct: true, attempts });
+    resolve({
+      chosen_index: selectedIndex,
+      correct: true,
+      attempts,
+      tutor_questions: askedQuestions,
+    });
   };
 
   const onSkip = () => {
     if (resolved) return;
     setResolved(true);
-    resolve({ chosen_index: selectedIndex, correct: false, attempts });
+    resolve({
+      chosen_index: selectedIndex,
+      correct: false,
+      attempts,
+      tutor_questions: askedQuestions,
+    });
   };
 
   return (
@@ -321,6 +337,9 @@ export function McqCard({
                   question={mcq.question}
                   options={mcq.options}
                   correct_index={mcq.correct_index}
+                  onAsk={(q) =>
+                    setAskedQuestions((prev) => [...prev, q])
+                  }
                 />
               </div>
             ) : (

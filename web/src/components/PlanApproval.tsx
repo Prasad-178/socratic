@@ -94,14 +94,56 @@ export function PlanApprovalCard({
     setObjectives((prev) => prev.filter((o) => o.id !== id));
   };
 
+  // ── Key-point (bullet) editing ─────────────────────────────────────────────
+  // Bullets live on the objective as `key_points: string[]` and round-trip in
+  // the resolve payload. We edit them immutably so the rest of the objective
+  // dict (id/description/difficulty/status/unknown keys) is preserved.
+  const updateKeyPoint = (id: string, index: number, value: string) => {
+    setObjectives((prev) =>
+      prev.map((o) => {
+        if (o.id !== id) return o;
+        const points = [...(o.key_points ?? [])];
+        points[index] = value;
+        return { ...o, key_points: points };
+      }),
+    );
+  };
+
+  const removeKeyPoint = (id: string, index: number) => {
+    setObjectives((prev) =>
+      prev.map((o) => {
+        if (o.id !== id) return o;
+        const points = (o.key_points ?? []).filter((_, i) => i !== index);
+        return { ...o, key_points: points };
+      }),
+    );
+  };
+
+  const addKeyPoint = (id: string) => {
+    setObjectives((prev) =>
+      prev.map((o) =>
+        o.id === id ? { ...o, key_points: [...(o.key_points ?? []), ""] } : o,
+      ),
+    );
+  };
+
+  // Drop empty bullets on submit so blanks added-but-not-filled don't ship.
+  const cleanedObjectives = () =>
+    objectives.map((o) => ({
+      ...o,
+      ...(o.key_points
+        ? { key_points: o.key_points.map((p) => p.trim()).filter(Boolean) }
+        : {}),
+    }));
+
   const approve = () => {
     setSubmitted(true);
-    resolve({ action: "approve", plan: objectives });
+    resolve({ action: "approve", plan: cleanedObjectives() });
   };
 
   const regenerate = () => {
     setSubmitted(true);
-    resolve({ action: "regenerate", plan: objectives, feedback });
+    resolve({ action: "regenerate", plan: cleanedObjectives(), feedback });
   };
 
   return (
@@ -168,29 +210,54 @@ export function PlanApprovalCard({
                   </p>
                 )}
 
-                {o.key_points && o.key_points.length > 0 && (
-                  <div className="flex flex-col gap-1.5 pl-9">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                      What you&apos;ll learn
-                    </p>
-                    <ul className="flex flex-col gap-1">
-                      {o.key_points.map((kp, kpi) => (
-                        <li
-                          key={kpi}
-                          className="flex gap-2 text-sm text-[var(--muted-foreground)]"
+                <div className="flex flex-col gap-1.5 pl-9">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                    What you&apos;ll learn
+                  </p>
+                  <ul className="flex flex-col gap-1.5">
+                    {(o.key_points ?? []).map((kp, kpi) => (
+                      <li key={kpi} className="flex items-center gap-2">
+                        <span
+                          aria-hidden
+                          className="select-none text-[var(--muted-foreground)]"
                         >
-                          <span
-                            aria-hidden
-                            className="select-none text-[var(--muted-foreground)]"
-                          >
-                            •
-                          </span>
-                          <span>{kp}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                          •
+                        </span>
+                        <Input
+                          aria-label={`Topic ${i + 1}, point ${kpi + 1}`}
+                          value={kp}
+                          onChange={(e) =>
+                            updateKeyPoint(o.id, kpi, e.target.value)
+                          }
+                          disabled={submitted}
+                          placeholder="What you'll learn…"
+                          className="h-8 flex-1 text-sm"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Remove point ${kpi + 1} from topic ${i + 1}`}
+                          onClick={() => removeKeyPoint(o.id, kpi)}
+                          disabled={submitted}
+                          className="size-8 shrink-0 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
+                        >
+                          ✕
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => addKeyPoint(o.id)}
+                    disabled={submitted}
+                    className="self-start text-[var(--muted-foreground)]"
+                  >
+                    + Add point
+                  </Button>
+                </div>
               </li>
             ))}
           </ol>

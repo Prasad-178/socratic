@@ -15,6 +15,11 @@ import { Spinner } from "@/components/ui/spinner";
 /** Subset of the agent's shared state the active-step machine reads. */
 interface SocraticState {
   phase?: string;
+  /** All generated MCQs (set once the quiz is prepared). */
+  all_mcqs?: unknown[];
+  /** Index of the question currently being asked; === all_mcqs.length when the
+   *  last question has been answered and the agent is summarizing. */
+  current_mcq_idx?: number;
 }
 
 /**
@@ -37,8 +42,11 @@ export default function HomePage() {
   const mcqElement = useMcq();
 
   const { agent } = useAgent();
-  const phase = (agent.state as SocraticState | undefined)?.phase;
+  const state = agent.state as SocraticState | undefined;
+  const phase = state?.phase;
   const isRunning = agent.isRunning;
+  const allMcqs = state?.all_mcqs;
+  const currentMcqIdx = state?.current_mcq_idx;
 
   // ── Active-step state machine ──────────────────────────────────────────────
   // Show EXACTLY ONE step, in priority order. An interrupt element being
@@ -60,13 +68,28 @@ export default function HomePage() {
   // for study tips) before the Summary renders. During that window the phase is
   // `summarizing` with NO interrupt active — distinct from the pre-quiz
   // "preparing questions" window, so it gets its own calm status below.
-  const isSummarizing = phase === "summarizing";
+  //
+  // We don't rely on `phase === "summarizing"` alone: the phase field can lag
+  // behind the resume, leaving a window where the last MCQ is answered but the
+  // phase still reads `quizzing`. That window used to fall through to the
+  // pre-quiz "Preparing your questions…" copy — the bug we're fixing. So we
+  // ALSO treat "running, all questions answered, not yet done" as summarizing.
+  const lastQuestionAnswered =
+    isRunning &&
+    Array.isArray(allMcqs) &&
+    allMcqs.length > 0 &&
+    typeof currentMcqIdx === "number" &&
+    currentMcqIdx >= allMcqs.length &&
+    phase !== "done";
+  const isSummarizing = phase === "summarizing" || lastQuestionAnswered;
   // Planning window: the explicit planning phases, OR the brief kickoff gap
   // before the agent has reported any phase at all (phase undefined + running).
   const isPlanning =
     phase === "planning" || phase === "awaiting_approval" || phase === undefined;
 
   if (planElement) {
+    // Plan-approval card is showing → mark the stepper's Plan step current
+    // (Upload reads as completed, Plan as current).
     step = "plan";
     activeStep = planElement;
   } else if (mcqElement) {
@@ -77,7 +100,8 @@ export default function HomePage() {
     activeStep = <Summary />;
   } else if (isSummarizing) {
     // Last question answered; the agent is generating study tips. Show a calm
-    // "finishing up" state — NOT the pre-quiz "preparing questions" copy.
+    // "finishing up" state — NOT the pre-quiz "preparing questions" copy. This
+    // sits ABOVE the `isPreparing` branch so the summary copy always wins.
     step = "summary";
     activeStep = <SummarizingStatus />;
   } else if (isRunning && isPlanning) {
@@ -179,7 +203,7 @@ function SummarizingStatus() {
       <Spinner size="lg" />
       <div className="flex flex-col gap-1">
         <p className="font-[family-name:var(--font-display)] text-lg font-medium">
-          Finishing up — preparing your summary…
+          Generating your summary and next steps…
         </p>
         <p className="max-w-sm text-sm text-[var(--muted-foreground)]">
           Reviewing how you did and writing personalized study tips. Almost
