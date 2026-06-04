@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tutor } from "@/components/Tutor";
+import { Markdown } from "@/components/Markdown";
 import { cn, parseInterruptValue } from "@/lib/utils";
 
 export interface Mcq {
@@ -256,9 +257,9 @@ export function McqCard({
           <div className="flex animate-fade-in flex-col gap-3 rounded-[var(--radius)] border border-green-500 bg-green-50 p-4 text-sm text-green-900 dark:bg-green-950 dark:text-green-100">
             <p className="font-semibold">Correct! Here&apos;s why:</p>
             {mcq.explanation && (
-              <p className="text-green-800 dark:text-green-200">
+              <Markdown className="text-green-800 dark:text-green-200">
                 {mcq.explanation}
-              </p>
+              </Markdown>
             )}
             <Button type="button" onClick={onContinue} className="self-start">
               Continue
@@ -270,7 +271,9 @@ export function McqCard({
           <div className="flex animate-fade-in flex-col gap-3 rounded-[var(--radius)] border border-red-500 bg-red-50 p-4 text-sm text-red-900 dark:bg-red-950 dark:text-red-100">
             <p className="font-semibold">Not quite — here&apos;s a hint:</p>
             {mcq.hint && (
-              <p className="text-red-800 dark:text-red-200">{mcq.hint}</p>
+              <Markdown className="text-red-800 dark:text-red-200">
+                {mcq.hint}
+              </Markdown>
             )}
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={onTryAgain} className="self-start">

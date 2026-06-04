@@ -55,6 +55,11 @@ export default function HomePage() {
   // before the first MCQ interrupt arrives. Everything earlier (undefined,
   // `planning`, `awaiting_approval`) is the plan-building window.
   const isPreparing = phase === "preparing_quiz" || phase === "quizzing";
+  // After the LAST question is answered the agent runs `summarize` (an LLM call
+  // for study tips) before the Summary renders. During that window the phase is
+  // `summarizing` with NO interrupt active — distinct from the pre-quiz
+  // "preparing questions" window, so it gets its own calm status below.
+  const isSummarizing = phase === "summarizing";
   // Planning window: the explicit planning phases, OR the brief kickoff gap
   // before the agent has reported any phase at all (phase undefined + running).
   const isPlanning =
@@ -69,6 +74,11 @@ export default function HomePage() {
   } else if (phase === "done") {
     step = "summary";
     activeStep = <Summary />;
+  } else if (isSummarizing) {
+    // Last question answered; the agent is generating study tips. Show a calm
+    // "finishing up" state — NOT the pre-quiz "preparing questions" copy.
+    step = "summary";
+    activeStep = <SummarizingStatus />;
   } else if (isRunning && isPlanning) {
     // Agent running with no interrupt yet, in the planning window → planning.
     step = "plan";
@@ -150,6 +160,27 @@ function PreparingQuestionsStatus() {
         <p className="max-w-sm text-sm text-[var(--muted-foreground)]">
           Writing grounded questions for each topic. Your first one is on its
           way.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Calm "Finishing up…" state shown after the LAST question is answered, while
+ *  the agent generates the personalized study tips that feed the Summary. Same
+ *  style as the other status states; distinct copy so it never reads as the
+ *  pre-quiz "Preparing your questions…" window. */
+function SummarizingStatus() {
+  return (
+    <div className="flex flex-col items-center gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-6 py-16 text-center">
+      <Spinner size="lg" />
+      <div className="flex flex-col gap-1">
+        <p className="font-[family-name:var(--font-display)] text-lg font-medium">
+          Finishing up — preparing your summary…
+        </p>
+        <p className="max-w-sm text-sm text-[var(--muted-foreground)]">
+          Reviewing how you did and writing personalized study tips. Almost
+          there.
         </p>
       </div>
     </div>

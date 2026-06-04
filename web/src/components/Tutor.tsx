@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Markdown } from "@/components/Markdown";
 
 /**
  * The current question's context, passed down from the active MCQ. The tutor is
@@ -99,7 +100,13 @@ export function Tutor({ question, options, correct_index }: TutorContext) {
                   : "mr-auto max-w-[90%] animate-fade-in rounded-[var(--radius)] bg-[var(--secondary)] px-3.5 py-2 text-sm text-[var(--secondary-foreground)]"
               }
             >
-              {turn.text}
+              {/* User messages stay plain; the tutor reply is LLM-generated
+                  markdown (bold, numbered steps) and is rendered as such. */}
+              {turn.role === "tutor" ? (
+                <Markdown>{turn.text}</Markdown>
+              ) : (
+                turn.text
+              )}
             </div>
           ))}
           {loading && (
