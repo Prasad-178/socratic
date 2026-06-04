@@ -5,6 +5,11 @@
 # Mount a volume at /root/.docling to persist them across container restarts:
 #   docker run -v docling-models:/root/.docling ...
 #
+# Build caveat: fastembed → onnxruntime → torch/CUDA wheel chain (~5 GB on
+# first build). Requires ~8 GB free disk space in Docker and a good internet
+# connection. On CI, pin fastembed to the CPU-only onnxruntime wheel or use
+# a pre-built base image.
+#
 # System deps:
 #   - build-essential / gcc: needed by some compiled Python extensions
 #   - libgl1 / libglib2.0-0: required by OpenCV (pulled in by docling)
