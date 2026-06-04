@@ -3,6 +3,10 @@
 import { CopilotChat } from "@copilotkit/react-core/v2";
 
 import { Uploader } from "@/components/Uploader";
+import { PlanApproval } from "@/components/PlanApproval";
+import { McqWidget } from "@/components/McqWidget";
+import { Progress } from "@/components/Progress";
+import { Summary } from "@/components/Summary";
 
 /**
  * Socratic — PDF → interactive Socratic lesson.
@@ -13,27 +17,14 @@ import { Uploader } from "@/components/Uploader";
  * is kicked off by the Uploader once a PDF is ingested.
  */
 export default function HomePage() {
-  // ── Phase 5B interrupt hooks mount here ──────────────────────────────────
-  // The agent surfaces two interrupt types over AG-UI:
-  //   { type: "plan_approval", plan: [...] }  → PlanApproval widget
-  //   { type: "mcq", mcq: {...} }             → McqWidget
-  // Wire them with useInterrupt from "@copilotkit/react-core/v2", e.g.:
-  //
-  //   const planApproval = useInterrupt({
-  //     enabled: ({ value }) => value?.type === "plan_approval",
-  //     render: ({ event, resolve }) => (
-  //       <PlanApproval plan={event.value.plan} onResolve={resolve} />
-  //     ),
-  //   });
-  //   const mcq = useInterrupt({
-  //     enabled: ({ value }) => value?.type === "mcq",
-  //     render: ({ event, resolve }) => (
-  //       <McqWidget mcq={event.value.mcq} onResolve={resolve} />
-  //     ),
-  //   });
-  //
-  // (Resolve contracts — plan: { action, plan, feedback }; mcq:
-  //  { chosen_index, correct, attempts }.) Left unregistered in 5A.
+  // ── Phase 5B interrupt hooks ─────────────────────────────────────────────
+  // PlanApproval and McqWidget register `useInterrupt` handlers (and render
+  // null); the interrupt cards they return are published into <CopilotChat>
+  // by CopilotKit (renderInChat default). The agent surfaces two interrupt
+  // types over AG-UI — { type: "plan_approval", plan } and { type: "mcq", mcq }
+  // — resolved with { action, plan, feedback } and
+  // { chosen_index, correct, attempts } respectively. Progress and Summary read
+  // agent.state (read-only) and render in the lesson surface below.
 
   return (
     <div className="flex h-full flex-row">
@@ -48,14 +39,14 @@ export default function HomePage() {
 
         <Uploader />
 
-        {/* ── Phase 5B widget mount points ──────────────────────────────────
-            Render the interrupt elements returned by useInterrupt above, plus
-            agent-state-driven panels read from `useAgent().agent.state`:
-              <PlanApproval />   plan-approval interrupt UI
-              <McqWidget />      MCQ interrupt UI (uses /api/tutor for hints)
-              <Progress />       objectives / quiz progress from agent.state
-              <Summary />        final lesson summary from agent.state
-        */}
+        {/* ── Phase 5B widgets ──────────────────────────────────────────────
+            PlanApproval / McqWidget register useInterrupt handlers (render
+            null; their cards appear inline in the chat). Progress / Summary
+            are agent-state-driven panels rendered in this lesson surface. */}
+        <PlanApproval />
+        <McqWidget />
+        <Progress />
+        <Summary />
       </div>
 
       {/* Chat */}
