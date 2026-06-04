@@ -1,4 +1,7 @@
 import os
+import shutil
+import tempfile
+import uuid
 import warnings
 from pathlib import Path
 from dotenv import load_dotenv
@@ -14,9 +17,10 @@ for env_path in (_demo_root / ".env", Path(".env")):
 else:
     load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
 import uvicorn
 from src.agent import graph
+from src.ingest import ingest_document
 from copilotkit import LangGraphAGUIAgent
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 
@@ -26,6 +30,24 @@ app = FastAPI()
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/upload")
+async def upload(file: UploadFile = File(...)):
+    """Ingest a PDF document into the vector store.
+
+    Returns a unique ``document_id`` that downstream endpoints (MCQ generation,
+    retrieval) use to scope queries to this document.
+    """
+    document_id = uuid.uuid4().hex
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        path = Path(tmp.name)
+    try:
+        chunks = ingest_document(path, document_id)
+    finally:
+        path.unlink(missing_ok=True)
+    return {"document_id": document_id, "chunks": chunks, "filename": file.filename}
 
 
 add_langgraph_fastapi_endpoint(

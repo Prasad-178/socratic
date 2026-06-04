@@ -42,3 +42,4 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = ["integration: needs DB and/or model downloads"]
