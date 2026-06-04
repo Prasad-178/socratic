@@ -164,6 +164,7 @@ def ask_mcq_node(state: SocraticState) -> Command:
         chosen_index=result["chosen_index"],
         correct=result["correct"],
         attempts=result["attempts"],
+        tutor_questions=result.get("tutor_questions", []),
     ).model_dump()
 
     next_idx = idx + 1

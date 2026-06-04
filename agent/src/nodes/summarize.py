@@ -63,25 +63,44 @@ async def summarize_node(state: SocraticState) -> dict:
     Persists a one-line ``headline``, a list of ``study_tips`` (markdown-free,
     so Summary.tsx renders a clean list), and the structured score ``report``.
     """
-    report = compute_report(state.get("results", []))
-    # Map objective ids -> human-readable topic titles so the tips never leak a
-    # raw identifier like "OBJ002". The LLM only ever sees the titles.
+    results = state.get("results", [])
+    report = compute_report(results)
+    # Map objective ids -> human-readable topic titles so tips never leak a raw
+    # identifier like "OBJ002"; the LLM only ever sees the titles.
     id_to_title = {
         o.get("id"): o.get("title", "this topic") for o in state.get("objectives", [])
     }
-    weak_titles = [id_to_title.get(oid, "this topic") for oid in report["weak_objectives"]]
+    # Topics the learner struggled with: weak (most retries) first, then any other
+    # topic they got wrong or needed more than one attempt on.
+    struggled_ids = {
+        r["objective_id"] for r in results if (not r["correct"]) or r["attempts"] > 1
+    }
+    ordered = report["weak_objectives"] + [
+        i for i in struggled_ids if i not in report["weak_objectives"]
+    ]
+    struggled = [id_to_title.get(i, "this topic") for i in ordered]
     focus = (
-        ", ".join(f'"{t}"' for t in weak_titles)
-        if weak_titles
+        ", ".join(f'"{t}"' for t in struggled)
+        if struggled
         else "none in particular — they did well across the board"
     )
+    # What they asked the tutor — direct signals of what confused them.
+    tutor_qs = [q for r in results for q in r.get("tutor_questions", [])]
+    tutor_ctx = (
+        " They also asked their tutor these questions (signals of confusion): "
+        + "; ".join(f'"{q}"' for q in tutor_qs[:8])
+        + "."
+        if tutor_qs
+        else ""
+    )
     tips = await generate_structured(
-        "Write an encouraging summary for a learner who just finished a quiz, "
-        f"scoring {report['correct']} out of {report['total']}. "
-        f"The topics they found hardest (needed the most retries): {focus}. "
-        "Give one warm headline and exactly 3 concise, actionable study tips. "
-        "Refer to any topic by its NAME only — never use codes, ids, or identifiers. "
-        "Plain sentences only — no markdown, no bullet characters.",
+        "Write an encouraging summary and study plan for a learner who just "
+        f"finished a quiz, scoring {report['correct']} out of {report['total']}. "
+        f"The topics they struggled with (got wrong or needed retries): {focus}.{tutor_ctx} "
+        "Give one warm headline and exactly 3 SPECIFIC, actionable next steps — base "
+        "each on these signals, naming the exact topic or idea to review and a "
+        "concrete action. Refer to topics by NAME only — never use codes, ids, or "
+        "identifiers. Plain sentences only — no markdown, no bullet characters.",
         _StudyTips,
     )
     return {

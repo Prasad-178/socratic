@@ -55,6 +55,9 @@ class MCQResult(BaseModel):
     chosen_index: int
     correct: bool
     attempts: int
+    # What the learner asked the tutor on this question (signals of confusion,
+    # fed into the final study-tips so "what to study next" is actually targeted).
+    tutor_questions: list[str] = Field(default_factory=list)
 
 
 class SocraticState(TypedDict, total=False):
